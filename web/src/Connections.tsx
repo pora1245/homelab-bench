@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { api, Field, Help, Obj, time, tips, temperatureOmitted } from "./common";
+import { Components } from "./Components";
 
 const initial = {
   name: "",
@@ -29,14 +30,12 @@ export function Connections({
   connections,
   devices,
   setup,
-  onSetup,
   refresh,
   onError,
 }: {
   connections: Obj[];
   devices: Obj[];
   setup: Obj | null;
-  onSetup: () => void;
   refresh: () => Promise<void>;
   onError: (message: string) => void;
 }) {
@@ -102,7 +101,6 @@ export function Connections({
           <h1>연결 관리</h1>
           <p>한 번 저장한 모델과 장비를 다음 시험에서도 선택해 사용합니다.</p>
         </div>
-        <button onClick={onSetup}><Settings2 size={16}/>처음 사용 준비</button>
       </div>
       <section>
         <div className="section-heading">
@@ -312,6 +310,7 @@ export function Connections({
           ))}
         </div>
       </section>
+      <Components platform={setup?.platform || "linux"} />
       {edit && (
         <div
           className="modal-backdrop"
@@ -576,7 +575,7 @@ export function Connections({
                     <input type="password" autoComplete="new-password" value={deviceSecret} onChange={e=>setDeviceSecret(e.target.value)} placeholder={deviceEdit.has_key ? "저장된 키 유지" : "수집기 인증 키 입력"}/>
                   </Field>
                   {deviceEdit.has_key && <label className="checkline"><input type="checkbox" checked={clearDeviceKey} onChange={e=>setClearDeviceKey(e.target.checked)}/>저장된 수집기 인증 키 삭제</label>}
-                  <p className="subtle">모델 서버에 수집기를 먼저 실행하세요. ‘처음 사용 준비’에서 설치·연결 절차를 확인할 수 있습니다.</p>
+                  <p className="subtle">모델 서버에서 수집기를 실행한 뒤 주소와 인증 키를 입력하세요. 연결 관리 아래 ‘장비 수집기 설치 방법’에서 운영체제별 실행 파일을 확인할 수 있습니다.</p>
                   </>
                 )}
                 {deviceEdit.mode === "ssh" && (

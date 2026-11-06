@@ -37,7 +37,6 @@ import {
   temperatureOmitted,
 } from "./common";
 import { Connections } from "./Connections";
-import { Setup } from "./Setup";
 import { Report } from "./Report";
 import { Home } from "./Home";
 import { HistoryManager } from "./HistoryManager";
@@ -107,7 +106,7 @@ function App() {
     [readinessChecking, setReadinessChecking] = useState(false),
     [readinessError, setReadinessError] = useState("");
   const readinessSequence = useRef(0);
-  const [setup, setSetup] = useState<Obj | null>(null), [setupOpen, setSetupOpen] = useState(false);
+  const [setup, setSetup] = useState<Obj | null>(null);
   async function checkReadiness(names?: string[]) {
     const sequence = ++readinessSequence.current;
     setReadiness(null);
@@ -158,11 +157,6 @@ function App() {
     setDevices(d);
     setPacks(p);
   }
-  async function saveSetup(preferences: Obj, connect: boolean) {
-    setSetup(await api("setup", preferences));
-    setSetupOpen(false);
-    if (connect) setTab("connections");
-  }
   async function refresh() {
     if (refreshLock.current) return;
     refreshLock.current = true;
@@ -211,10 +205,7 @@ function App() {
   }
   useEffect(() => {
     refreshProfiles().catch((e) => setError(String(e)));
-    Promise.all([api("setup"), api("connections")]).then(([value, profiles]) => {
-      setSetup(value);
-      if (!value.preferences.completed && !profiles.length) setSetupOpen(true);
-    }).catch(e => setError(String(e)));
+    api("setup").then(setSetup).catch(e => setError(String(e)));
     refresh();
     const stream = new EventSource("/api/events");
     let timer: ReturnType<typeof setTimeout> | undefined,
@@ -287,7 +278,6 @@ function App() {
     setDeviceId(preferredDevice(profile));
   }
   function preferredDevice(profile?: Obj) {
-    if (setup?.preferences.completed && !setup.preferences.device_collection) return "";
     if (profile?.device_id && devices.some((d) => d.id === profile.device_id)) return profile.device_id;
     // localhost can be a gateway or tunnel. Only an explicit profile association is authoritative.
     return "";
@@ -301,6 +291,11 @@ function App() {
     const target =
       connections.find((v) => v.kind === "target" && v.is_default) ||
       connections.find((v) => v.kind === "target");
+    if (!target) {
+      setModal(false);
+      setTab("connections");
+      return;
+    }
     const preferred =
       packs.find((p) => p.id === form.pack_id && !packMeta(p).legacy && p.id !== "korean-core-v1") ||
       packs.find((p) => !packMeta(p).legacy && p.id !== "korean-core-v1");
@@ -565,6 +560,8 @@ function App() {
             <Home
               run={run?.id === selected ? run : null}
               loading={!!selected && run?.id !== selected}
+              hasTarget={connections.some((v) => v.kind === "target")}
+              onOpenConnections={() => setTab("connections")}
               onNewTest={(intent) => {
                 newTest();
                 if (intent) setForm((previous) => ({ ...previous, ...intent, subjects: initialSubjects(intent.pack_id || previous.pack_id) }));
@@ -581,7 +578,6 @@ function App() {
               connections={connections}
               devices={devices}
               setup={setup}
-              onSetup={() => setSetupOpen(true)}
               refresh={refreshProfiles}
               onError={setError}
             />
@@ -1073,7 +1069,6 @@ function App() {
           </footer>
         </div>
       </main>
-      {setupOpen && setup && <Setup value={setup} devices={devices} onSave={saveSetup} onClose={() => setSetupOpen(false)} />}
       {modal && (
         <div
           className="modal-backdrop"

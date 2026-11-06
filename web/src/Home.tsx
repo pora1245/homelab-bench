@@ -31,6 +31,8 @@ export type HomeProps = {
   /** Parent supplies the selected record; Home evaluates that record only. */
   run: Obj | null;
   loading?: boolean;
+  hasTarget: boolean;
+  onOpenConnections: () => void;
   onNewTest: (intent?: HomeTestIntent) => void;
   onOpenReport: (runId: string, format: HomeReportFormat) => void;
 };
@@ -128,6 +130,8 @@ function ScoreCard({
 export function Home({
   run,
   loading = false,
+  hasTarget,
+  onOpenConnections,
   onNewTest,
   onOpenReport,
 }: HomeProps) {
@@ -153,13 +157,12 @@ export function Home({
           <FlaskConical size={36} />
         </div>
         <span className="eyebrow">YOUR MODEL, MEASURED</span>
-        <h1>첫 시험으로 시작하세요</h1>
+        <h1>{hasTarget ? "첫 시험으로 시작하세요" : "모델 연결이 필요합니다"}</h1>
         <p>
-          모델이 얼마나 잘 답하고 얼마나 빠르게 반응하는지
-          <br />한 번의 시험으로 확인합니다.
+          {hasTarget ? <>모델이 얼마나 잘 답하고 얼마나 빠르게 반응하는지<br />한 번의 시험으로 확인합니다.</> : <>연결 관리에서 시험할 모델 API를 저장하세요.<br />저장한 연결은 다음 시험에서도 그대로 사용합니다.</>}
         </p>
-        <button className="primary" onClick={() => onNewTest()}>
-          <Plus size={17} />새 시험
+        <button className="primary" onClick={hasTarget ? () => onNewTest() : onOpenConnections}>
+          {hasTarget ? <Plus size={17} /> : <ArrowRight size={17} />}{hasTarget ? "새 시험" : "연결 관리"}
         </button>
         <div className="home-welcome-steps">
           <span>

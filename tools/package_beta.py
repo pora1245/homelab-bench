@@ -28,6 +28,8 @@ COMMON_FILES = ["API.md", "datasets/README.md", "schemas/pack.schema.json", "sco
 SOURCE_FILES = ["Cargo.toml", "Cargo.lock", "web/package.json", "web/package-lock.json", "web/tsconfig.json", "web/index.html", "tools/package_beta.py", "packaging/Build-Source-Windows.ps1", "packaging/Dockerfile.windows-build"]
 DOC_FILES = ["docs/BETA-START.md", "docs/WINDOWS-NATIVE-PREPARATION.md", "docs/BETA-REVIEW.md", "docs/BBH-PACK.md", "docs/bbh-validation.json", "docs/bbh-published-output-audit.json", "docs/THIRD-PARTY-NOTICES.md", "docs/DISTRIBUTION-LICENSE-AUDIT.md", "docs/python-dependencies.json", "docs/distribution-allowlist.json", "docs/rust-toolchain-notices.json", "docs/math500-source-equivalence.json", "docs/dataset-expansion-sources.json"]
 DOC_FILES.append("docs/DEVICE-COLLECTOR.md")
+DOC_FILES += ["docs/AI-INSTALL.md", "docs/STATUS.md"]
+COMMON_FILES += ["README.md", "AGENTS.md", "SCORE-POLICY.md", "tools/configure_install.py"]
 COMMON_FILES += ["packaging/" + name for name in [
     "collector-posix.sh", "Setup-Device-Collector.command", "Start-Device-Collector.command",
     "Setup-Device-Collector-Linux.sh", "Start-Device-Collector-Linux.sh",
@@ -151,7 +153,7 @@ def payload(stage, kind, notice_stage):
         return
     for rel in COMMON_FILES+DOC_FILES:
         copy(rel,stage/rel)
-    copy('docs/BETA-START.md',stage/'BETA-START.md')
+    (stage/'BETA-START.md').write_text('# LLM Bench 시작 안내\n\n[한국어 시작 안내](docs/BETA-START.md) · [AI 설치 안내](docs/AI-INSTALL.md) · [전체 사용법](README.md)\n', encoding='utf-8')
     copy('docs/THIRD-PARTY-NOTICES.md',stage/'THIRD_PARTY_NOTICES.md')
     for name in PACKS: copy('datasets/'+name,stage/'datasets'/name)
     tree(ROOT/'LICENSES',stage/'LICENSES')

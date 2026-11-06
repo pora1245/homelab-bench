@@ -44,7 +44,7 @@
 | 경로 | 용도 |
 |---|---|
 | `GET /api/health` | 실행기 버전·응답 확인 |
-| `GET/POST /api/setup` | 최초 준비 선호 조회·저장. 실제 설치/시험은 시작하지 않음 |
+| `GET/POST /api/setup` | AI 설치에서 확인한 선택 조회·저장. 실제 설치/시험은 시작하지 않음 |
 | `POST /api/check` | `base_url`, `api_key`로 모델 목록 연결 확인 |
 | `GET/POST /api/packs` | 평가팩 목록 / 새 ID·버전 추가 |
 | `GET /api/runs` | 실행 이력과 요약 |
@@ -98,7 +98,9 @@
 
 별도 실행: `llm-bench agent`. `BENCH_AGENT_BIND` 기본값은 `127.0.0.1:18761`. 외부 IP bind에는 `BENCH_AGENT_TOKEN_FILE` 또는 `BENCH_AGENT_TOKEN` 중 하나가 필수다. 토큰 설정 시 `/health`·`/metrics`는 Bearer 인증이 필요하다. 기본 앱·장비 수집기·코드 채점기는 서로 다른 역할이며 수집기에 Python·Docker가 필요하지 않다. 배포 실행 파일은 `docs/DEVICE-COLLECTOR.md`를 따른다.
 
-## 처음 사용 준비
+## AI 설치 선택 저장
+
+앱은 처음 사용 준비 대화창 없이 홈을 연다. AI 설치 절차는 `docs/AI-INSTALL.md`를 따른다. AI가 사용자에게 모델 위치·장비 수집·코드 채점 사용 여부를 확인한 뒤 `tools/configure_install.py` 또는 아래 API로 저장한다. 연결 추가·변경과 구성 요소 상태 확인은 앱의 연결 관리에서도 할 수 있다.
 
 `GET /api/setup`은 `preferences`와 벤치 실행기 `platform`을 반환한다. POST는 `{schema_version:1,model_location:"local"|"remote",code_grading:boolean,device_collection:boolean,completed:boolean}` 선호만 저장한다. `completed:true`에는 모델 위치가 필수이며 성공 시 `updated_at`을 기록한다. 이 선택은 준비 완료 판정이 아니며 실제 준비 상태를 따로 확인한다. 기존 모델·장비 연결은 덮어쓰지 않는다.
 

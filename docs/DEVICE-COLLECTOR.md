@@ -2,12 +2,12 @@
 
 장비 수집기는 **모델이 실행되는 장비**에서 CPU·메모리·GPU·온도·전력 등의 읽기 전용 상태를 제공한다. 모델을 시작·종료하거나 장비 설정을 바꾸지 않는다. 코드 채점기와 별개의 선택 기능이다. Rust 실행 파일과 운영체제 기본 명령만 사용하므로 Python·Docker는 필요하지 않다.
 
-## 최초 앱 설정에서 고르는 대상
+## 설치 AI가 확인하는 모델 위치
 
 - **앱이 실행 중인 이 PC**: 모델도 이 PC에서 실행된다. 앱의 로컬 계측을 선택하면 별도 수집기를 실행할 필요가 없다. 이 값은 앱 PC 정보이며 외부 모델 서버 정보가 아니다.
 - **외부 서버**: 모델 서버에 해당 OS·아키텍처의 독립 수집기를 복사하고 실행한 뒤 앱의 장비 연결에 등록한다. 앱 PC의 온도·메모리를 서버 상태처럼 표시하지 않는다.
 
-선택은 앱 첫 준비 화면에서 저장한다. 설치 CLI는 같은 질문을 다시 묻거나 기존 선택을 덮어쓰지 않는다. `BENCH_DATA_DIR/onboarding.json`은 다음 선호값만 보관하고 준비 여부는 실제 상태 확인으로 따로 판단한다.
+설치 AI는 [AI 설치 안내서](https://github.com/pora1245/llm-bench/blob/main/docs/AI-INSTALL.md)에 따라 모델 위치와 장비 수집 여부를 질문한 뒤 선택을 저장한다. 앱에는 별도 첫 준비 화면이 없으며 나중에 연결 관리에서 구성 요소를 추가하거나 상태를 확인한다. `BENCH_DATA_DIR/onboarding.json`은 다음 선호값만 보관하고 준비 여부는 실제 상태 확인으로 따로 판단한다.
 
 ```json
 {"schema_version":1,"model_location":null,"code_grading":false,"device_collection":true,"completed":false,"updated_at":null}
