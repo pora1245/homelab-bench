@@ -4,12 +4,14 @@
 
 ## 새 시험
 
-`POST /api/runs`
+먼저 아래 실행 본문으로 `POST /api/preflight`를 호출한다. 실제 API·스트리밍·계측·선택 장비를 확인한 뒤 반환된 `preflight_token`을 넣어 `POST /api/runs`를 호출한다. 검증 요청은 시험 이력이나 점수에 포함되지 않는다.
 
 ```json
 {
   "api_key": "",
   "judge_key": "",
+  "preflight_token": "검증 응답의 토큰",
+  "allow_limited_metrics": false,
   "config": {
     "name": "시험 이름",
     "base_url": "http://127.0.0.1:8000/v1",
@@ -20,6 +22,7 @@
     "temperature": 0,
     "max_tokens": 4096,
     "concurrency": 1,
+    "auto_concurrency": false,
     "timeout_s": 600,
     "reasoning_effort": "",
     "telemetry_url": "",
@@ -30,6 +33,17 @@
 ```
 
 응답은 `{"id":"UUID"}`. `GET /api/runs/{id}`로 결과를 읽는다. `GET /api/events`는 초기 `ready`와 변경된 실행 ID를 SSE로 보낸다. 이벤트를 받은 UI는 최신 상태를 다시 읽는다. 이벤트 연결이 끊겨도 실행과 SQLite 기록은 유지한다.
+
+### 계측 사전검증
+
+`POST /api/preflight`는 위와 같은 `config`·연결 ID·키를 받으며, 티켓 필드는 생략한다. 반환값의 `status`는 `ready`/`limited`/`failed`다. `checks`에는 항목별 `ok`/`unsupported`/`error`, `required`, 사유가 들어간다. `metrics`, `metric_quality`, `finish_reason`, `probe`, `checked_at`도 반환한다.
+
+- `ready`: 동일 설정으로 시작할 수 있다.
+- `limited`: 누락·오류 항목을 확인하고 진행을 선택한 경우에만 `allow_limited_metrics:true`로 시작한다. 이 동의가 계측값을 정상으로 바꾸지는 않는다.
+- `failed`: API 응답 실패이므로 제한 동의로 통과시킬 수 없다.
+- 티켓은 실행기 메모리에 30분 보관한다. 앱 재시작·만료·주소/모델/키/추론/토큰/동시성/장비 등 계측 설정 변경 시 재검증한다. 시험 이름과 평가팩만 바꾸는 것은 티켓을 무효화하지 않는다.
+- 검증은 최대 2,048 출력 토큰과 120초 안에서 기존 요청 상한을 적용한다. Prefill이 없으면 TTFT로 대체하지 않는다. 장비 미선택은 선택 항목이며, 선택한 장비의 연결·GPU 계측 누락은 제한 사항이다.
+- `POST /api/check`의 모델 목록 확인은 사전검증을 대신하지 않는다. 새 시험은 유효한 티켓이 없으면 요청 전송 전에 차단된다. 재개·재시도는 기존 실행 조건과 저장된 키를 복원하는 기존 제어 계약을 따른다.
 
 - `quick`: 평가팩의 `sources.quick_ids`에 고정된 문항. 가져온 사용자팩에 ID가 없으면 과목당 첫 5문항.
 - `full`: 선택 과목의 평가 구간 전체
@@ -46,9 +60,12 @@
 | `GET /api/health` | 실행기 버전·응답 확인 |
 | `GET/POST /api/setup` | AI 설치에서 확인한 선택 조회·저장. 실제 설치/시험은 시작하지 않음 |
 | `POST /api/check` | `base_url`, `api_key`로 모델 목록 연결 확인 |
+| `POST /api/preflight` | 실제 스트리밍 계측 검증·30분 유효 티켓 발급 |
 | `GET/POST /api/packs` | 평가팩 목록 / 새 ID·버전 추가 |
 | `GET /api/runs` | 실행 이력과 요약 |
 | `POST /api/runs/{id}/pause` | 현재 문항 종료 후 일시정지 |
+| `POST /api/runs/{id}/concurrency` | 일시정지된 시험의 동시 요청 수 변경 |
+| `POST /api/runs/{id}/auto-concurrency` | 일시정지된 시험에 실제 표본 기반 자동 동시 요청 선택 설정 |
 | `POST /api/runs/{id}/cancel` | 현재 요청 중단 |
 | `POST /api/runs/{id}/resume` | 대기 문항 재개 |
 | `POST /api/runs/{id}/retry` | 요청 오류 문항만 다시 실행 |
@@ -58,11 +75,34 @@
 | `POST /api/artifacts` | PNG/SVG 보고서 저장 |
 | `GET /api/artifacts/{UUID.확장자}` | 저장 보고서 다운로드 |
 
-제어 POST의 본문은 `{}` 또는 재입력할 `api_key`·`judge_key` 객체다. 실행 이력 가져오기는 `provenance=imported_record`로 표시하고 대상 모델을 자동 호출하지 않는다. 데이터베이스는 하나의 시험만 동시에 실행하며, 시험 안에서 지정한 동시 요청 수를 사용한다.
+제어 POST의 본문은 `{}` 또는 재입력할 `api_key`·`judge_key` 객체다. `concurrency` 제어만 `{"concurrency":4}` 형식을 사용한다. 실행 이력 가져오기는 `provenance=imported_record`로 표시하고 대상 모델을 자동 호출하지 않는다. 여러 시험을 동시에 실행할 수 있으며 각 시험의 활성 작업과 취소 상태를 별도로 관리한다.
+
+`concurrency`는 활성 작업이 없는 `paused` 시험에만 적용할 수 있고 정수 1~8을 허용한다. 실행 중에는 먼저 `pause` 후 현재 요청·채점이 종료되기를 기다린다. 변경은 기존 문항·답변·채점·`suite_hash`를 유지하면서 `execution_segments`에 `{started_at,concurrency,completed_before,reason}`을 추가하고 config를 갱신한다. 같은 값을 다시 보내면 구간을 중복 생성하지 않는다. 이후 `resume`으로 재개한다.
+
+### 자동 동시 요청 선택
+
+새 시험에서 `config.auto_concurrency:true`이면 `concurrency`를 측정 상한으로 사용한다(1~8). 생략/false인 기존 시험은 수동 설정 그대로 실행한다. 선택한 실제 품질 문항 중 최대 8개를 과목별로 고르게 골라 c1부터 같은 표본·생성 설정으로 c2→c4→c8을 비교한다. 문항 수보다 큰 동시성은 시험하지 않는다. 첫 후보가 빠르면 같은 표본의 c1 확인 라운드를 한 번 더 실행하고 빠른 c1을 기준으로 비교해 캐시 예열 효과를 줄인다. API의 캐시 사용을 강제로 통제하지는 않으며 `cache_control`·`cache_comparison`에 한계를 기록한다.
+
+후보를 채택하려면 같은 문항의 합계 출력 토큰/라운드 경과시간과 라운드 완료시간이 모두 직전 최선보다 10% 이상 개선되어야 한다. 경과시간은 요청과 채점을 포함한다. 요청 오류·잘림·사용량 누락·미채점 또는 문항별 점수 하락이 있는 후보는 채택하지 않는다. 효과가 없으면 더 높은 동시성 탐색을 중단하고 c1 또는 앞서 검증한 최선을 유지한다. 전체 측정은 누적 활성시간 10분으로 제한하며, 상한 안에 비교를 끝내지 못하면 c1로 원래 시험을 계속한다. 일시정지 시간은 측정 예산에 포함하지 않는다.
+
+기존 시험에 명시적으로 적용하려면 먼저 `pause`로 활성 요청과 채점을 끝낸 뒤 다음 요청을 보낸다.
+
+```json
+POST /api/runs/{id}/auto-concurrency
+{"enabled":true,"max_concurrency":8}
+```
+
+이후 `resume`으로 측정과 남은 시험을 진행한다. 기존 정상 종료·실측 완료 문항을 먼저 전역 후보로 모으고 그 안에서 과목별 짧은 표본을 선택한다. 완료 후보가 8개 미만일 때만 부족분을 미측정 문항으로 보충하며, 정답 여부는 선택에 사용하지 않는다. 선정 근거는 `selection_reason`에 남긴다. `items`·원답변·채점·순서·`suite_hash`는 바꾸지 않는다. 완료된 튜닝을 다시 실행하려면 `remeasure:true`를 명시해야 하며 이전 원문은 `previous_measurements`에 보존한다. `enabled:false` 또는 수동 `concurrency` 변경은 자동 선택을 끈다. 진행 중 비교는 재개 시 이미 완료된 표본을 다시 요청하지 않는다.
+
+`Run.concurrency_tuning`에는 버전, 상태(`baseline/testing/completed/unavailable`), 표본 ID·프롬프트 SHA-256, 생성 설정 스냅샷/지문, 라운드별 동시성·역할·시작/완료시각·단조시계 경과시간·출력/usage/채점, 기준/선택 라운드 인덱스, 처리량/완료시간 개선 배수를 저장한다. 이 표본은 `items`와 별도 보존하므로 지능 점수의 문항 수에 중복 산입하지 않는다. 원시 프레임은 로컬 내보내기에 보존하고 일반 조회/compact에서는 제거한다. compact는 출력·추론 본문도 제거한다. 선택 후 `config.concurrency`를 실제 적용 값으로 바꾸고 `execution_segments.reason=auto_tuned`로 경계를 기록한다. `initial_concurrency`는 최초 설정 해석을 보존한다.
 
 ## 기록 구조
 
-실행에는 `config`, `pack_version`, `protocol_version`, `suite_hash`, `provenance`, `items`, `telemetry`, `status`를 저장한다. 문항에는 입력·정답·채점기·메타데이터와 `attempts`를 보존한다. 시도마다 시작/완료 시각, 출력·추론 내용, 종료 이유, 오류, 원시 API 프레임, 계측값, 채점값·근거·버전을 저장한다. 재시도는 기존 시도를 덮어쓰지 않는다. 요약은 문항별 마지막 시도를 사용한다.
+실행에는 `config`, `pack_version`, `protocol_version`, `suite_hash`, `provenance`, `items`, `telemetry`, `status`, `execution_segments`를 저장한다. 문항에는 입력·정답·채점기·메타데이터와 `attempts`를 보존한다. 시도마다 시작/완료 시각, 출력·추론 내용, 종료 이유, 오류, 원시 API 프레임, 계측값, 채점값·근거·버전을 저장한다. 재시도는 기존 시도를 덮어쓰지 않는다. 요약은 문항별 마지막 시도를 사용한다.
+
+새 요청은 `metrics.request_concurrency`, 새로 수집한 응답의 채점은 `metrics.grading_ms`를 보존한다. `wall_ms`는 요청 응답 시간이며 채점 시간과 구분한다. `metric_quality`는 원본 수치를 바꾸지 않고 `valid`·`excluded`·`missing`을 제공한다. 버전은 `metric-integrity-v1`이며 제외 사유 코드와 집계 건수를 함께 사용한다.
+
+`summary`의 속도·TTFT·Prefill·Throughput은 최신 실행 구간과 해당 동시성에 속하는 유효 계측만 집계한다. `current_segment_stats.scope`와 `metric_scope`에 시작 시각·동시성·포함/이전 제외 건수를 표시하며, 품질 정오답은 전체 시험을 유지한다. `summary.metric_quality`는 지표별 정상/제외/미수집 건수·사유와 최근 최대20건의 누락을 제공한다. 고정 성능팩은 같은 시험의 다른 작업과 겹치지 않게 c1으로 실행하며 `single_request_performance`에 별도로 집계한다. 다른 시험이나 외부 모델 부하까지 격리한다는 뜻은 아니다.
 
 완료되지 않은 문항의 정답·채점 메타데이터는 조회 화면에서 숨긴다. 시험 대상 API에는 `prompt`만 보내며 정답·채점 메타데이터를 포함하지 않는다. 선택한 채점 API에는 평가에 필요한 정답과 rubric을 전달한다.
 
@@ -118,7 +158,9 @@ GPU driver/PCIe 협상/클럭/전력 제한·전력/온도/사용률/VRAM/제한
 
 보고서 화면의 SVG가 내보내기의 정본이다. 지능·성능·종합(+문항 상세)을 선택하며 종합은 결과·속도·장비 실측·조건을 여러 페이지로 표시한다. PNG/SVG/HTML은 `/api/artifacts`로 파일을 보존하고 다운로드 링크를 제공한다(attachment/nosniff). HTML/PDF는 같은 전체 SVG 페이지를 조합한다. 원본 JSON은 API 주소/내부경로/원시응답을 포함할 수 있는 개인 보관용 자료이며 공유용 이미지 보고서와 구분한다. 과거 호환 report/compare 경로는 기존 클라이언트용으로 남지만 제품 UI에서는 사용하지 않는다.
 
-생성 중 TTFT는 `ttft_source=client_stream`과 함께 전달한다. 비스트리밍·출력 없음 등은 `ttft_reason`으로 설명한다. 문항 상태 `grading`은 모델 답변을 저장하고 채점 중임을 뜻하며 재시작 후 채점만 재개한다. SQLite는 runs(메타데이터)/run_items(문항)로 분리하고 진행 중 변경된 문항을 5초 간격으로 체크포인트한다.
+생성 중 가시 답변 TTFT는 `ttft_source=client_visible_stream`과 함께 전달하며 첫 추론 토큰은 `reasoning_ttft_ms`로 구분한다. 비스트리밍·출력 없음 등은 `ttft_reason`으로 설명한다. 문항 상태 `grading`은 모델 답변을 저장하고 채점 중임을 뜻하며 재시작 후 채점만 재개한다. SQLite는 runs(메타데이터)/run_items(문항)로 분리하고 진행 중 변경된 문항을 5초 간격으로 체크포인트한다.
+
+잠정 단일 점수와 ETA는 조회 기록에서 웹 클라이언트가 계산한다. `assessment.currentScores`는 채점된 분야의 잠정 점수이며 원래의 최종 가능 범위를 덮어쓰지 않는다. `estimateCompletion(run, nowMs)`는 최신 구간의 분야별 응답·채점 시간과 최근 Decode, 실제 관측한 요청 중첩을 사용한다. 변경 후 유효 응답 5건 전에는 재계산 대기이며 미측정 분야가 있으면 낮은 확신으로 넓은 계획 범위를 표시한다. 일시정지·중단 중에는 움직이는 완료시각을 만들지 않는다.
 
 ## 성능 출력 검증 v2
 

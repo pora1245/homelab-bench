@@ -3,12 +3,15 @@ import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { Obj, number, time, duration, Help, temperatureOmitted } from "./common";
 import { benchmarkLabel, benchmarkHelp, taskBenchmarkLabel, taskBenchmarkKey, isReferenceTask, referenceSubjectLabel } from "./benchmarkLabels";
 
+import { validMetric, metricReason } from "./metricQuality";
+import { aggregateThroughput, throughputReason } from "./throughput";
+import { MetricCoverage } from "./LiveInsights";
 import { assessRun } from "./assessment";
-import frontierReference from "./frontier-reference.json";
 
 type Format = "overview" | "intelligence" | "performance" | "detailed";
 type Theme = "light" | "dark" | "print";
 type Section =
+  | "metrics"
   | "score"
   | "intelligence"
   | "performance"
@@ -178,7 +181,7 @@ function measuredDecode(item: Obj) {
   const attempt = item.attempts?.at(-1);
   return ["done", "error"].includes(item.status) &&
     attempt?.ended_at &&
-    attempt.error == null
+    attempt.error == null && validMetric(attempt,"decode_tps")
     ? attempt.metrics?.decode_tps
     : null;
 }
@@ -299,9 +302,10 @@ function buildReportPages(run: Obj, format: Format): ReportPage[] {
     offset: 0,
     title: "응답 속도 · 지연 시간",
   };
+  const integrity:ReportPage[] = run.summary?.metric_quality ? [{section:"metrics",offset:0,title:"계측 검증 · 수집 범위"}] : [];
   if (format === "performance")
-    return [scorePage, performance, ...devicePages, ...offloadPages, ...gradingPages(run), conditions];
-  return [scorePage, ...quality, performance, ...devicePages, ...offloadPages, ...gradingPages(run), conditions];
+    return [scorePage, performance, ...integrity, ...devicePages, ...offloadPages, ...gradingPages(run), conditions];
+  return [scorePage, ...quality, performance, ...integrity, ...devicePages, ...offloadPages, ...gradingPages(run), conditions];
 }
 const pagesCache = new WeakMap<Obj, Map<Format, ReportPage[]>>();
 function reportPages(run: Obj, format: Format) {
@@ -331,6 +335,7 @@ export function renderReport(
     summary = run.summary || {},
     cfg = run.config || {},
     items: Obj[] = run.items || [];
+  const totalThroughput = aggregateThroughput(run);
   const pages = reportPages(run, format),
     index = Math.max(0, Math.min(page, pages.length - 1)),
     current = pages[index];
@@ -496,20 +501,23 @@ export function renderReport(
     rule(48, 191, 1024);
   body += text(48, 224, current.title, 22, c.text, 700);
   if (current.section === "score") {
-    const assessment = assessRun(run), ref = frontierReference as Obj;
+    const assessment = assessRun(run), ref = assessment.reference;
     const scoreValue = (score: Obj) => score.value != null ? number(score.value,1) : score.lower != null ? `${number(score.lower,1)}–${number(score.upper,1)}` : "미산출";
-    ([["종합",assessment.overall,"/100"],["지능",assessment.intelligence,"/100"],["성능",assessment.performance,"점 · 상한 없음"]] as const).forEach(([label,score,unit],i) => {
+    ([["종합",assessment.currentScores.overall,"/100"],["지능",assessment.currentScores.intelligence,"/100"],["성능",assessment.currentScores.performance,"점 · 상한 없음"]] as const).forEach(([label,score,unit],i) => {
       const x=48+i*348;
       body += card(x,253,328,125)+text(x+20,281,label,16,c.muted)+text(x+20,321,scoreValue(score),32,c.text,700)+text(x+20,353,unit,13,c.muted);
     });
     body += block(48,411,ref.status === "ready" ? `기준 API: ${ref.model} · ${ref.reasoning_effort} · ${time(ref.measured_at)} · 1,000점` : "프론티어 기준 측정 준비 중",1024,17,2,c.text);
-    body += block(48,460,assessment.performance.reason,1024,15,3,c.muted);
-    body += text(70,537,"유형",14,c.muted)+text(680,537,"기준 가시 출력 (tok/s)",14,c.muted,400,"end")+text(1048,537,"기준 TTFT (ms)",14,c.muted,400,"end")+rule(70,549,978);
-    [["english","영어"],["korean","한국어"],["code","코드"],["structured","JSON"]].forEach(([key,label],i)=>{
-      const v=ref.cases?.[key],y=580+i*34;
-      body+=text(70,y,label,16,c.text)+text(680,y,number(v?.decode_tps),16,c.text,400,"end")+text(1048,y,number(v?.ttft_ms),16,c.text,400,"end");
+    body += block(48,460,`${assessment.currentScores.intelligence.state === "complete" ? "평가 완료" : "잠정·부분 평가"} · 채점 ${assessment.currentScores.scored}/${assessment.currentScores.selected} · ${assessment.currentScores.evaluatedDomains.join(" · ")}`,1024,15,3,c.muted);
+    const e=assessment.performanceEvidence;
+    body += text(70,537,"시험 중 측정",14,c.muted)+text(680,537,"이번 시험",14,c.muted,400,"end")+text(1048,537,"Sol c1 기준값",14,c.muted,400,"end")+rule(70,549,978);
+    [["단일 Decode (tok/s)",e.concurrentDecodeTps,e.baselineDecode],["TTFT (ms)",e.ttftMedian,e.baselineTtft]].forEach(([label,value,baseline],i)=>{
+      const y=583+i*42;
+      body+=text(70,y,label,16,c.text)+text(680,y,number(value as number),18,c.text,600,"end")+text(1048,y,number(baseline as number),16,c.text,400,"end");
     });
-    body += block(48,744,"지능은 정답 채점, 성능은 요청 대기·네트워크·추론을 포함한 사용 경험입니다. 종합은 지능70%·기준 대비 성능30%의 기하평균으로 100점까지 표시합니다. 장비 자체의 최고 성능 순위는 아닙니다.",1024,13,3,c.muted);
+    body += block(70,663,`단일 유효 ${number(e.pairedCount,0)}건 · 기본 ${e.singleScore == null ? "미측정" : number(e.singleScore,0)+"점"} · 동시 처리 ${e.bonusState === "measured" ? "+"+number(e.concurrencyBonus || 0,0)+"점 (+"+number(e.concurrencyBonusPercent || 0)+"%)" : e.bonusState === "no_gain" ? "가산 없음" : e.bonusState === "pending" ? "확인 중" : "미측정"}`,978,13,1,c.muted);
+    body += block(70,689,`${e.bonusReason || "동시 처리 효과 미측정"} · ${assessment.policy}`,978,12,2,c.muted);
+    body += block(48,744,"기본 = 1,000 × √((단일 Decode / 기준) × (기준 TTFT / 단일 TTFT)). 같은 표본의 처리량 이득 2배마다 기본의 10%, 최대 30%를 가산합니다. 가산 비중은 베타 정책입니다. 종합은 지능70%·성능30%로 100점까지 표시합니다.",1024,13,3,c.muted);
   } else if (current.section === "intelligence") {
     const allSubjects = benchmarkResults(run);
     const subjects = allSubjects.slice(current.offset, current.offset + 7);
@@ -594,7 +602,7 @@ export function renderReport(
       metric(
         48,
         246,
-        "Decode",
+        "Decode · 요청당",
         summary.decode_tps?.median,
         "tok/s",
         summary.decode_tps?.n,
@@ -618,10 +626,10 @@ export function renderReport(
       metric(
         828,
         246,
-        "Throughput",
-        summary.output_throughput_tps,
+        "Throughput · 추론 포함",
+        totalThroughput.tps,
         "tok/s",
-        summary.throughput_n,
+        totalThroughput.n,
       );
     body +=
       card(48, 367, 1024, 221) +
@@ -712,21 +720,43 @@ export function renderReport(
           "end",
         );
     });
+    const quality = summary.metric_quality;
+    if (quality) {
+      const notes = ["decode_tps","ttft_ms","prefill_tps"].map(key=> {
+        const v=quality.metrics?.[key] || {};
+        return `${({decode_tps:"Decode",ttft_ms:"TTFT",prefill_tps:"Prefill"} as Obj)[key]} 제외 ${v.excluded || 0} · 미수집 ${v.missing || 0}`;
+      });
+      body += text(70,733,notes.join(" / "),11,c.muted);
+    }
     body += text(
       48,
       759,
-      `Decode 출처: 서버 ${summary.decode_sources?.server || 0}건 · 벤치 실행기 수신 시각 추정 ${summary.decode_sources?.client_estimate || 0}건`,
+      `동시 ${totalThroughput.scope.concurrency} · 가시 출력 ${display(totalThroughput.visible_tps, " tok/s")} · 추론 ${display(totalThroughput.reasoning_tps, " tok/s")} · 동일 유효 응답 ${totalThroughput.n}건`,
       12,
       c.muted,
     );
     body += block(
       48,
       781,
-      `Throughput: ${summary.throughput_scope || "첫 요청 시작~마지막 응답 완료; 프리필·요청 사이 채점·일시정지 포함"}`,
+      "Throughput = 추론 포함 출력 합계 ÷ 첫 요청 시작~마지막 완료. Prefill·채점 간격·대기·일시정지 포함.",
       1024,
       12,
       1,
     );
+  } else if (current.section === "metrics") {
+    const q = summary.metric_quality || {}, scope = summary.metric_scope || {};
+    body += block(48,265,`동시 ${scope.concurrency || cfg.concurrency} 구간 · 검증 대상 ${q.eligible || 0}건 · ${q.version || ""}`,1024,17,2,c.text);
+    let y=332;
+    body += text(70,y,"Throughput · 추론 포함",18,c.text,700)+text(1048,y,`유효 ${totalThroughput.n} · 제외 ${totalThroughput.excluded} · 미수집 ${totalThroughput.missing}`,15,c.text,400,"end");
+    const totalReasons = Object.entries(totalThroughput.reasons).map(([reason,count])=>`${throughputReason[reason]||reason} ${count}건`).join(" · ");
+    body += block(70,y+28,totalReasons || "전체 출력 토큰 기준 · 원본 보존",978,12,2,c.muted); y+=66;
+    for (const [key,label] of [["decode_tps","Decode"],["client_visible_decode_tps","가시 출력 Decode"],["ttft_ms","TTFT"],["prefill_tps","Prefill"],["throughput","가시 출력 Throughput"]]) {
+      const v=q.metrics?.[key] || {};
+      body += text(70,y,label,18,c.text,700)+text(1048,y,`유효 ${v.valid||0} · 제외 ${v.excluded||0} · 미수집 ${v.missing||0}`,15,c.text,400,"end");
+      const reasons = Object.entries(v.reasons||{}).map(([reason,count])=>`${metricReason[reason]||reason} ${count}건`).join(" · ");
+      body += block(70,y+28,reasons || "제외 없음",978,12,2,c.muted); y+=66;
+    }
+    body += block(48,760,"원본 측정값은 보존합니다. 수신 구간 100ms 미만의 클라이언트 Decode와 시간·토큰 집계 오류를 제외하며, 실제 지연은 유지합니다.",1024,13,3,c.muted);
   } else if (current.section === "hardware") {
     const h = hardware(run),
       latest = h.last,
@@ -1164,7 +1194,7 @@ export function renderReport(
         text(
           925,
           y,
-          number(attempt?.metrics?.ttft_ms),
+          number(attempt && validMetric(attempt,"ttft_ms") ? attempt.metrics?.ttft_ms : null),
           14,
           c.text,
           400,
@@ -1173,7 +1203,7 @@ export function renderReport(
         text(
           1060,
           y,
-          number(attempt?.metrics?.decode_tps),
+          number(attempt && validMetric(attempt,"decode_tps") ? attempt.metrics?.decode_tps : null),
           14,
           c.text,
           400,
@@ -1373,6 +1403,7 @@ export function Report({
   }
   return (
     <section className="report-view">
+      <div className="report-metric-audit"><MetricCoverage run={run} /></div>
       <div className="report-toolbar">
         <div className="report-selectors">
           <label>
@@ -1441,6 +1472,7 @@ export function Report({
       <p className="subtle">
         {benchmarkLabel(run.config?.pack_id)}{" "}
         <Help text={benchmarkHelp(run.config?.pack_id)} label="보고서 평가팩 도움말" />
+        {pages[actualPage]?.section === "score" && <Help label="성능 점수 측정 기준" text="기본점수는 같은 실행 설정의 단일 요청 이력으로 계산하며 동시작업 이후에도 유지합니다. 가산점은 같은 문항의 단일·동시 처리량과 완료시간이 모두 10% 이상 개선되고 오류가 늘지 않은 경우에만 적용합니다. 설정한 동시 요청 수 자체에는 가산하지 않습니다. 기존 단일 표본 출처와 동시 처리 근거는 원시 결과에 보존합니다." />}
       </p>
       {format !== "detailed" && (
         <nav className="report-outline" aria-label="보고서 항목">
@@ -1462,6 +1494,7 @@ export function Report({
                 {
                   {
                     score: "점수",
+                    metrics: "계측 검증",
                     intelligence: "지능 평가",
                     performance: "성능",
                     hardware: "장비",

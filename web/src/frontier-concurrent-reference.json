@@ -1,0 +1,21 @@
+{
+  "id": "bench-concurrent-visible-sol-20261105-v1",
+  "status": "ready",
+  "aggregation": "concurrent-visible-decode-union",
+  "source_reference_id": "bench-api-experience-v1-gpt61sol-20261105-435dea8c",
+  "source_reference_sha256": "8661b286c0c5564959040826241eeba671ad287286e549e3e2a6a6c780345943",
+  "source_raw_sha256": "9006eee998c1487d06af7fdc568791667f70d4d5238ab3be798cfef22cabba1e",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "low",
+  "measured_at": "2026-11-05T21:05:24.248338+00:00",
+  "run_id": "435dea8c-0df0-41c9-839a-6870c651b835",
+  "measurement_version": "client-visible-v1",
+  "concurrency": 1,
+  "sample_count": 12,
+  "decode_token_count": 9391,
+  "decode_active_ms": 162609.057875,
+  "decode_tps": 57.75201039058354,
+  "ttft_median_ms": 2879.7764585,
+  "minimum_visible_tokens": 2,
+  "minimum_decode_span_ms": 100
+}

@@ -3,7 +3,7 @@
 import copy, hashlib, http.server, json, os, socket, sqlite3, subprocess, tempfile, threading, time, urllib.error, urllib.request
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-checks=[]; requests=[]; paths=[]
+checks=[]; requests=[]; preflight_requests=[]; paths=[]
 def check(ok,label):
     assert ok,label
     checks.append(label)
@@ -14,12 +14,13 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers()
         self.wfile.write(json.dumps({'data':[{'id':'fixture'}]}).encode())
     def do_POST(self):
-        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(body);paths.append(self.path)
+        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));paths.append(self.path)
         prompt=body['input']
         if isinstance(prompt,list):
             prompt=prompt[0]['content']
             if isinstance(prompt,list):prompt=prompt[0]['text']
         assert isinstance(prompt,str)
+        (preflight_requests if prompt.startswith("Write a plain, factual paragraph") else requests).append(body)
         if '준비 완료' in prompt: text='준비 완료'
         elif 'JSON array' in prompt: text='```json\n'+json.dumps([{'id':n,'name':'fruit','description':'synthetic fixture description'} for n in range(1,25)])+'\n```'
         elif 'LRU cache' in prompt:text='```python\nclass Cache:\n    def get(self, key): return None\n    def put(self, key, value): pass\n```'
@@ -42,6 +43,10 @@ def main():
     def api(path,body=None):
         req=urllib.request.Request(base+'/api/'+path,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
         with urllib.request.urlopen(req,timeout=15) as r:return json.load(r)
+    def start_run(body):
+        probe=api('preflight',body)
+        check(probe['status'] in ('ready','limited'),'Responses streaming preflight completes before scoring')
+        return api('runs',{**body,'preflight_token':probe['preflight_token'],'allow_limited_metrics':True})
     def wait(rid):
         deadline=time.monotonic()+30
         while time.monotonic()<deadline:
@@ -64,17 +69,22 @@ def main():
                 packs=api('packs'); exp=next(x for x in packs if x['id']=='api-experience-v1'); collection=next(x for x in packs if x['id']=='collection-full-v1')
                 check(exp['count']==13 and exp['sources']['quick_count']==13,'experience full/quick include 12 measurements + warmup')
                 components=collection['sources']['components']
+                check('api-experience-v1' not in {component['id'] for component in components},'new quality collection excludes the legacy fixed performance pack')
+                check('api-experience-v1' not in collection['sources']['missing_components'],'legacy performance pack is not a required missing component')
+                check(not any(task_id.startswith('experience:') for task_id in collection['sources']['quick_ids']),'quick quality selection has no separate performance requests')
                 originals=[json.loads((ROOT/'datasets'/f"{component['id']}.json").read_text()) for component in components]
                 expected_count=sum(len(pack['tasks']) for pack in originals)
                 expected_quick=sum(len(pack['sources']['quick_ids']) for pack in originals)
                 check(collection['count']==expected_count and collection['sources']['quick_count']==expected_quick,f'collection matches installed original packs ({expected_count} full / {expected_quick} quick)')
+                check(sum(collection['subjects'].values())==expected_count and sum(collection['quick_subjects'].values())==expected_quick,'displayed full/quick subject counts exclude legacy performance requests')
+                check(all(task['scorer']!='experience' for pack in originals for task in pack['tasks']),'full quality selection contains only quality tasks')
                 source=json.loads((ROOT/'datasets/api-experience-v1.json').read_text())
                 check(all(t['meta']['prompt_sha256']==hashlib.sha256(t['prompt'].encode()).hexdigest() for t in source['tasks']),'all fixed prompt hashes match')
                 c=api('connections',{'name':'Responses fixture','kind':'target','base_url':target,'api_format':'responses','model':'fixture','defaults':{'temperature':0,'max_tokens':4096,'concurrency':1,'timeout_s':30,'reasoning_effort':'low'},'api_key':'SYNTHETIC-ONLY'})
                 check(c['api_format']=='responses','connection stores Responses format')
                 check(api(f"connections/{c['id']}/check",{})['ok'] and paths[-1]=='/v1/models','model list normalizes Responses URL')
                 config={'name':'Offline experience fixture','base_url':'http://invalid.invalid','model':'ignored','pack_id':'api-experience-v1','profile':'quick','subjects':[],'temperature':0,'max_tokens':4096,'concurrency':1,'timeout_s':30,'reasoning_effort':'low'}
-                started=api('runs',{'config':config,'connection_id':c['id']});rid=started['id']
+                started=start_run({'config':config,'connection_id':c['id']});rid=started['id']
                 r=wait(rid)
                 check(r['status']=='completed' and len(requests)==13,'product executes all 13 requests via saved connection')
                 check(r['config']['api_format']=='responses' and set(paths[1:])=={'/v1/responses'},'saved format controls inference route')

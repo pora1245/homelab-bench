@@ -1,4 +1,6 @@
 import frontierReferenceData from "./frontier-reference.json";
+import concurrentReferenceData from "./frontier-concurrent-reference.json";
+import { validMetric } from "./metricQuality";
 import {
   benchmarkLabel,
   benchmarkKey,
@@ -38,6 +40,33 @@ export type PerformanceEvidence = {
   decodeScore: number | null;
   ttftScore: number | null;
   sources: Record<string, number>;
+  baselineDecode?: number | null;
+  baselineTtft?: number | null;
+  segmentStartedAt?: string | null;
+  observedCount?: number;
+  excludedCount?: number;
+  excludedReasons?: Record<string, number>;
+  concurrentDecodeTps?: number | null;
+  decodeActiveMs?: number | null;
+  decodeTokenCount?: number | null;
+  effectiveDecodeConcurrency?: number | null;
+  peakDecodeConcurrency?: number | null;
+  aggregateIssue?: string;
+  singleScore?: number | null;
+  singleN?: number;
+  singleSource?: "ordinary" | "calibration" | "legacy-experience" | "none";
+  singleBenchmarkCounts?: Record<string, number>;
+  concurrencyBonus?: number | null;
+  concurrencyBonusPercent?: number | null;
+  throughputGain?: number | null;
+  completionGain?: number | null;
+  bonusState?: "measured" | "no_gain" | "unmeasured" | "invalid" | "pending";
+  bonusReason?: string;
+  bonusConcurrency?: number | null;
+  bonusSampleCount?: number;
+  legacySingleCount?: number;
+  legacySingleScore?: number | null;
+  cacheControl?: string;
 };
 export type AssessmentGuide = {
   id: string;
@@ -727,8 +756,17 @@ export type FrontierReference = {
   status: string; id: string; protocol: string; model: string; reasoning_effort: string;
   measured_at: string; run_id: string; suite_hash: string;
   cases: Partial<Record<ExperienceCase, { ttft_ms: number; decode_tps: number; prompt_sha256: string }>>;
+  concurrent_baseline?: {
+    id: string; status: string; aggregation: string; source_reference_id: string;
+    measurement_version: string; concurrency: number; sample_count: number;
+    decode_token_count: number; decode_active_ms: number; decode_tps: number; ttft_median_ms: number;
+    minimum_visible_tokens: number; minimum_decode_span_ms: number;
+  };
 };
 export const FRONTIER_REFERENCE: FrontierReference = frontierReferenceData;
+export const CONCURRENT_FRONTIER_REFERENCE: FrontierReference = {
+  ...FRONTIER_REFERENCE, concurrent_baseline: concurrentReferenceData,
+};
 export const BENCH_SCORE_POLICY_V3 = Object.freeze({
   id: "bench-api-experience-v3.1", protocol: "api-experience-v1", outputValidation: "api-experience-output-v2", baselineScore: 1000,
   repeatsPerCase: 3, overallIntelligenceWeight: 0.7, overallPerformanceWeight: 0.3,
@@ -738,7 +776,63 @@ export type FrontierAssessment = Assessment & {
   legacyV2: Pick<AssessmentV1, "intelligence" | "performance" | "overall">;
   reference: FrontierReference;
   experienceCases: CaseEvidence[];
+  /** Display-only observed scores. Completion bounds and historical indices stay above. */
+  currentScores: CurrentScores;
 };
+
+export type CurrentScores = {
+  intelligence: ScoreEstimate;
+  performance: ScoreEstimate;
+  overall: ScoreEstimate;
+  evaluatedBenchmarks: number;
+  totalBenchmarks: number;
+  evaluatedDomains: string[];
+  scored: number;
+  selected: number;
+};
+
+/**
+ * The provisional headline uses each observed benchmark's mean at its fixed
+ * weight, normalized over observed weights only. Thus 1,000 MMLU items do not
+ * overpower 50 math items. This is an observed-part score, never an imputation
+ * for missing domains. Final bounds above retain their original meaning.
+ */
+export function currentScores(
+  run: Data,
+  benchmarks: BenchmarkEvidence[],
+  intelligence: ScoreEstimate,
+  performance: ScoreEstimate,
+): CurrentScores {
+  const observed = benchmarks.filter((b) => b.scored > 0);
+  const weight = observed.reduce((sum, b) => sum + b.weight, 0);
+  const value = weight > 0
+    ? round(100 * observed.reduce((sum, b) => sum + b.weight * b.points / b.scored, 0) / weight)
+    : null;
+  const domain = (id: string) => ["gsm8k", "math500"].includes(id) ? "수학"
+    : id === "mmlu-pro" ? "지식·추론" : id === "ifeval" ? "지시 이행" : "코딩";
+  const evaluatedDomains = [...new Set(observed.map((b) => domain(b.id)))];
+  const currentIntelligence: ScoreEstimate = value == null ? intelligence : {
+    ...intelligence, value, measuredOnly: value,
+    reason: intelligence.state === "complete" ? "전체 평가 완료"
+      : `채점된 ${evaluatedDomains.join("·")} 기준 잠정 점수입니다. 미평가 영역은 포함하지 않았습니다.`,
+  };
+  // Use a point for the provisional combination, without replacing the saved
+  // completion bounds. Retain incomplete coverage/state on the display result.
+  const combined = value == null ? unavailable("지능·성능 측정 필요")
+    : combineScoresV3({ ...currentIntelligence, lower: value, upper: value }, performance);
+  if (combined.value != null) {
+    combined.coverage = intelligence.coverage;
+    combined.state = intelligence.state === "complete" && performance.state === "complete"
+      ? "complete" : intelligence.state === "partial" ? "partial" : "provisional";
+    combined.reason = combined.state === "complete" ? "전체 평가 완료" : "현재 지능·성능에 따른 잠정 점수";
+  }
+  return {
+    intelligence: currentIntelligence, performance, overall: combined,
+    evaluatedBenchmarks: observed.length, totalBenchmarks: benchmarks.length,
+    evaluatedDomains, scored: benchmarks.reduce((n, b) => n + b.scored, 0),
+    selected: benchmarks.reduce((n, b) => n + b.selected, 0),
+  };
+}
 const experienceItem = (item: Data) => String(item.task?.id || "").startsWith("experience:");
 const geometric = (values: number[]) => Math.exp(values.reduce((sum, n) => sum + Math.log(n), 0) / values.length);
 function referenceReady(ref: FrontierReference): boolean {
@@ -761,8 +855,10 @@ export function assessFrontierPerformance(run: Data, ref: FrontierReference = FR
         a.score?.state === "measured" && a.score?.scorer_version === BENCH_SCORE_POLICY_V3.outputValidation && a.score?.extra?.valid_output === true &&
         meta?.performance_protocol === BENCH_SCORE_POLICY_V3.protocol &&
         (!ready || meta?.prompt_sha256 === b?.prompt_sha256) &&
+        (m?.request_concurrency ?? run.config?.concurrency) === 1 &&
         m?.measurement_version === "client-visible-v1" && m?.ttft_source === "client_visible_stream" && finite(m?.ttft_ms) && m.ttft_ms > 0 &&
-        finite(m?.client_visible_decode_tps) && m.client_visible_decode_tps > 0;
+        finite(m?.client_visible_decode_tps) && m.client_visible_decode_tps > 0 &&
+        validMetric(a, "ttft_ms") && validMetric(a, "client_visible_decode_tps");
     });
     const decode = median(valid.map((i) => i.attempts.at(-1).metrics.client_visible_decode_tps));
     const ttft = median(valid.map((i) => i.attempts.at(-1).metrics.ttft_ms));
@@ -772,21 +868,58 @@ export function assessFrontierPerformance(run: Data, ref: FrontierReference = FR
   });
   const n = cases.reduce((sum, c) => sum + c.count, 0);
   const evidence: PerformanceEvidence = {
-    pairedCount: n, requiredCount: 12, concurrency: finite(run.config?.concurrency) ? run.config.concurrency : null,
+    pairedCount: n, requiredCount: 12, concurrency: n > 0 ? 1 : finite(run.config?.concurrency) ? run.config.concurrency : null,
     decodeMedian: median(cases.filter((c) => c.decode != null).map((c) => c.decode!)),
     ttftMedian: median(cases.filter((c) => c.ttft != null).map((c) => c.ttft!)),
     decodeScore: null, ttftScore: null, sources: n ? { client_visible_stream: n } : {},
   };
   const fail = (reason: string) => ({ score: unavailable(reason), evidence, cases });
   if (!ready) return fail("프론티어 API 기준 측정을 완료하면 성능 점수가 표시됩니다.");
-  if (evidence.concurrency !== 1) return fail("기준 API와 같은 단일 요청(c1) 성능 시험이 필요합니다.");
+  const pendingFixedPerformance = items.some((item) =>
+    EXPERIENCE_CASES.some((id) => [1, 2, 3].some((r) => item.task?.id === `experience:${id}:${r}`)) &&
+    item.task?.meta?.performance_protocol === BENCH_SCORE_POLICY_V3.protocol &&
+    !["done", "error"].includes(item.status));
+  if (pendingFixedPerformance && cases.some((c) => c.count !== 3))
+    return fail("성능 측정 대기 · 이 시험의 c1 고정 성능 문항이 완료되면 점수가 자동으로 표시됩니다.");
+  if (evidence.concurrency !== 1 && !items.some((item) => experienceItem(item) && item.attempts?.at(-1)?.metrics?.request_concurrency === 1))
+    return fail("기준 API와 같은 단일 요청(c1) 성능 시험이 필요합니다.");
   const needsRevalidation = items.some((item) => experienceItem(item) && item.task?.meta?.warmup !== true &&
     item.attempts?.at(-1)?.score?.state === "measured" &&
     item.attempts.at(-1).score.scorer_version !== BENCH_SCORE_POLICY_V3.outputValidation);
   if (cases.some((c) => c.count !== 3) && needsRevalidation)
     return fail("저장된 성능 결과에 이전 검증 규칙이 남아 있습니다. 앱이 기록을 불러올 때 자동 반영하며 모델을 다시 호출하지 않습니다.");
-  if (cases.some((c) => c.count !== 3))
+  if (cases.some((c) => c.count !== 3)) {
+    const terminal = items.filter((item) =>
+      EXPERIENCE_CASES.some((id) => [1, 2, 3].some((r) => item.task?.id === `experience:${id}:${r}`)) &&
+      item.task?.meta?.performance_protocol === BENCH_SCORE_POLICY_V3.protocol &&
+      ["done", "error"].includes(item.status) && item.attempts?.length);
+    const limited = terminal.filter((item) => item.attempts.at(-1).finish_reason === "length");
+    const details: string[] = [];
+    if (limited.length) {
+      const labels: Record<ExperienceCase, string> = { english: "영어", korean: "한국어", code: "코드", structured: "JSON" };
+      const groups = EXPERIENCE_CASES.flatMap((id) => {
+        const count = limited.filter((item) => item.task.id.startsWith(`experience:${id}:`)).length;
+        return count ? [`${labels[id]} ${count}건`] : [];
+      });
+      details.push(`출력 한도 도달: ${groups.join(", ")}`);
+    }
+    const normal = terminal.filter((item) => {
+      const a = item.attempts.at(-1);
+      return a.error == null && a.finish_reason === "stop";
+    });
+    const invalidOutputs = normal.filter((item) => item.attempts.at(-1).score?.extra?.valid_output === false).length;
+    if (invalidOutputs) details.push(`출력 검증 실패 ${invalidOutputs}건`);
+    const missingMetrics = normal.filter((item) => {
+      const a = item.attempts.at(-1), m = a.metrics;
+      return a.score?.extra?.valid_output === true &&
+        (m?.ttft_ms == null || m?.client_visible_decode_tps == null);
+    }).length;
+    if (missingMetrics) details.push(`TTFT·Decode 계측 누락 ${missingMetrics}건`);
+    const requestErrors = terminal.filter((item) => item.attempts.at(-1).error != null).length;
+    if (requestErrors) details.push(`요청 실패 ${requestErrors}건`);
+    if (details.length) return fail(`성능 미산출 · ${details.join(" · ")} · 정상 유효 ${n}/12건`);
     return fail(`고정 성능 시험에서 영어·한국어·코드·JSON 각 3회가 필요합니다. 현재 유효 표본 ${n}/12건이며 예열·오류·출력 잘림·다른 측정 정의는 제외합니다.`);
+  }
   const ratios = cases.flatMap((c) => [c.decodeRatio!, c.ttftRatio!]);
   if (!ratios.every((r) => finite(r) && r > 0)) return fail("기준 대비 비율의 수치 범위를 확인할 수 없습니다.");
   const raw = 1000 * geometric(ratios);
@@ -800,7 +933,7 @@ export function assessFrontierPerformance(run: Data, ref: FrontierReference = FR
 export function combineScoresV3(intelligence: ScoreEstimate, performance: ScoreEstimate): ScoreEstimate {
   const lo = intelligence.lower, hi = intelligence.upper, p = performance.value;
   if (!finite(lo) || !finite(hi) || lo < 0 || hi > 100 || hi < lo || !finite(p) || p <= 0)
-    return unavailable("지능 평가와 기준 API에 맞춘 성능 시험이 함께 있어야 종합 점수를 산출합니다.");
+    return unavailable("지능 채점 결과와 성능 점수를 계산할 수 있는 시험 계측 기록이 필요합니다.");
   const convert = (i: number) => i === 0 ? 0 : 100 * (i / 100) ** 0.7 * Math.min(p / 1000, 1) ** 0.3;
   const partial = intelligence.value == null;
   const lower = partial ? Math.max(0, indexBound(convert(lo), false)) : clamp(round(convert(lo)));
@@ -809,7 +942,8 @@ export function combineScoresV3(intelligence: ScoreEstimate, performance: ScoreE
     value: partial ? null : lower, lower, upper, coverage: partial ? Math.min(99.9, round(.7 * intelligence.coverage + 30)) : 100,
     measuredOnly: null, reason: "종합은 100점 만점입니다. 지능 70%·API 사용성 30%의 기하평균이며, 기준 API 이상의 성능은 종합에서 만점으로 처리합니다. 비중은 공개된 제품 정책이고 시장 통계로 정한 값이 아닙니다." };
 }
-export function assessRun(run: Data | null | undefined, ref: FrontierReference = FRONTIER_REFERENCE): FrontierAssessment {
+/** Historical fixed-prompt v3 policy; retained only for result reproduction. */
+export function assessRunV3(run: Data | null | undefined, ref: FrontierReference = FRONTIER_REFERENCE): FrontierAssessment {
   const record = run || {}, legacy = assessRunV2(record), allItems = uniqueItems(record);
   const qualityItems = allItems.filter((i) => !experienceItem(i));
   const quality = assessRunV1({ ...record, items: qualityItems });
@@ -823,7 +957,7 @@ export function assessRun(run: Data | null | undefined, ref: FrontierReference =
     `기준 ${ref.model} · 추론 ${ref.reasoning_effort} · 측정 ${ref.measured_at || "준비 중"} · 기준 버전 ${ref.id}`,
     "네 가지 고정 입력의 가시 출력 속도·TTFT를 동일한 클라이언트 정의로 비교합니다. 예열은 제외합니다.",
     `출력 검증 ${BENCH_SCORE_POLICY_V3.outputValidation}: 완결된 코드 블록은 측정에 포함하며 원문·토큰·시간은 그대로 사용합니다. 형식 준수는 별도 진단입니다.`,
-    `단일 요청 ${record.config?.concurrency ?? "미기록"} · 실행 추론 강도 ${record.config?.reasoning_effort || "기본/미지정"} · API 방식 ${record.config?.api_format || "chat_completions"}`,
+    `시험 동시 요청 ${record.config?.concurrency ?? "미기록"} · 성능 측정 동시 요청 ${e.concurrency ?? "미기록"} · 실행 추론 강도 ${record.config?.reasoning_effort || "기본/미지정"} · API 방식 ${record.config?.api_format || "chat_completions"}`,
     "API 서비스 부하와 네트워크, 모델 토크나이저·출력 분량의 차이는 실제 사용 경험 차이에 포함됩니다. 순수 GPU 처리량 비교는 아닙니다.",
     "지능 점수는 공개 벤치 정답 채점으로 독립 계산합니다. API보다 빠르다고 더 정확하다는 뜻은 아닙니다.",
   ];
@@ -832,11 +966,421 @@ export function assessRun(run: Data | null | undefined, ref: FrontierReference =
     performance: score, overall: combineScoresV3(quality.intelligence, score), performanceEvidence: e,
     scoringFailures: quality.scoringFailures, referenceItems: quality.referenceItems, unrecognizedItems: quality.unrecognizedItems,
     usability, reference: ref, experienceCases: performance.cases,
+    currentScores: currentScores(record, quality.benchmarks, quality.intelligence, score),
     legacyV2: { intelligence: legacy.intelligence, performance: legacy.performance, overall: legacy.overall },
     comparison: { key: `${BENCH_SCORE_POLICY_V3.id}:${ref.id}`, details: comparisonDetails, complete: score.value != null },
   };
   const guides = guidesFor(record, result).filter((g) => !["latency", "decode", "timing"].includes(g.id)).map((g) => ({ ...g, evidence: g.evidence.replaceAll("v1 지능 구성", "고정 지능 구성") }));
-  if (score.value == null) guides.unshift({ id: "frontier", kind: "measurement", title: score.reason.startsWith("저장된 성능 결과") ? "저장된 성능 결과 자동 반영" : "API 사용성 시험을 함께 실행하세요", evidence: score.reason, next: score.reason.startsWith("저장된 성능 결과") ? "기존 응답과 측정값으로 자동 처리합니다. 별도의 시험이나 재계산 작업은 필요하지 않습니다." : "새 시험에서 API 사용성 시험을 선택하거나 성능 측정을 포함한 종합 시험을 실행하세요. 이전 원시 결과와 채점은 그대로 보존됩니다." });
+  const pendingPerformance = allItems.some((item) => experienceItem(item) && !["done", "error"].includes(item.status));
+  const terminalFixedPerformance = allItems.some((item) =>
+    EXPERIENCE_CASES.some((id) => [1, 2, 3].some((r) => item.task?.id === `experience:${id}:${r}`)) &&
+    item.task?.meta?.performance_protocol === BENCH_SCORE_POLICY_V3.protocol &&
+    ["done", "error"].includes(item.status));
+  if (score.value == null) guides.unshift(pendingPerformance
+    ? { id: "frontier", kind: "measurement", title: "성능 측정 대기", evidence: `유효 측정 ${e.pairedCount}/12건`, next: "이 시험의 성능 문항이 끝나면 점수가 갱신됩니다." }
+    : terminalFixedPerformance && !score.reason.startsWith("저장된 성능 결과")
+      ? { id: "frontier", kind: "measurement", title: "성능 측정 결과 확인", evidence: score.reason, next: "출력 한도·추론 설정을 바꾸면 기준 API와의 비교 조건도 달라집니다." }
+    : { id: "frontier", kind: "measurement", title: score.reason.startsWith("저장된 성능 결과") ? "저장된 성능 결과 자동 반영" : "API 사용성 시험을 함께 실행하세요", evidence: score.reason, next: score.reason.startsWith("저장된 성능 결과") ? "기존 응답과 측정값으로 자동 처리합니다. 별도의 시험이나 재계산 작업은 필요하지 않습니다." : "새 시험에서 API 사용성 시험을 선택하거나 성능 측정을 포함한 종합 시험을 실행하세요. 이전 원시 결과와 채점은 그대로 보존됩니다." });
   else if (score.value < 1000) guides.unshift({ id: "frontier-speed", kind: "experience", title: "응답 속도와 첫 답변 대기를 확인하세요", evidence: usability.detail, next: "같은 모델에서 엔진·장비·추론 설정을 하나씩 바꿔 측정하세요. API 연결이라면 통신·서비스 대기 영향도 함께 확인하세요." });
+  return { ...result, guides: guides.slice(0, 3) };
+}
+
+export const BENCH_SCORE_POLICY_V4 = Object.freeze({
+  id: "bench-live-api-v4.1", baselineScore: 1000, minimumPairedRequests: 1,
+  measurementVersion: "client-visible-v1", baselineAggregation: "concurrent-visible-decode-union",
+  sampleAggregation: "concurrent-visible-decode-union", minimumVisibleTokens: 2, minimumDecodeSpanMs: 100,
+  decodeWeight: 0.5, ttftWeight: 0.5,
+  overallIntelligenceWeight: 0.7, overallPerformanceWeight: 0.3,
+});
+
+/** Derived from the same original Sol 12 responses; the v3 reference is immutable. */
+export function frontierBaseline(ref: FrontierReference = CONCURRENT_FRONTIER_REFERENCE) {
+  const b = ref.concurrent_baseline;
+  if (!referenceReady(ref) || !b || b.status !== "ready" || !b.id || b.source_reference_id !== ref.id ||
+      b.aggregation !== BENCH_SCORE_POLICY_V4.baselineAggregation ||
+      b.measurement_version !== BENCH_SCORE_POLICY_V4.measurementVersion || b.concurrency !== 1 ||
+      b.minimum_visible_tokens !== BENCH_SCORE_POLICY_V4.minimumVisibleTokens ||
+      b.minimum_decode_span_ms !== BENCH_SCORE_POLICY_V4.minimumDecodeSpanMs ||
+      !Number.isSafeInteger(b.sample_count) || b.sample_count < 1 ||
+      !Number.isSafeInteger(b.decode_token_count) || b.decode_token_count < BENCH_SCORE_POLICY_V4.minimumVisibleTokens ||
+      !finite(b.decode_active_ms) || b.decode_active_ms <= 0 ||
+      !finite(b.decode_tps) || b.decode_tps <= 0 || !finite(b.ttft_median_ms) || b.ttft_median_ms <= 0 ||
+      Math.abs(b.decode_token_count * 1000 / b.decode_active_ms - b.decode_tps) > b.decode_tps * 1e-6)
+    return { decode: null, ttft: null };
+  return { decode: b.decode_tps, ttft: b.ttft_median_ms };
+}
+
+const requestStamp = (value: unknown) => typeof value === "string" &&
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value)
+  ? Date.parse(value) : NaN;
+const concurrencyValue = (value: unknown): value is number => finite(value) && Number.isInteger(value) && value >= 1;
+function actualConcurrency(run: Data, attempt: Data): number | null {
+  if (concurrencyValue(attempt.metrics?.request_concurrency)) return attempt.metrics.request_concurrency;
+  const start = requestStamp(attempt.started_at);
+  for (const segment of [...(run.execution_segments || [])].reverse()) {
+    const at = requestStamp(segment.started_at);
+    if (finite(at) && start >= at && concurrencyValue(segment.concurrency)) return segment.concurrency;
+  }
+  return concurrencyValue(run.config?.concurrency) ? run.config.concurrency : null;
+}
+const ordinaryItem = (item: Data) => !experienceItem(item) && item.task?.scorer !== "experience" &&
+  item.task?.meta?.performance_protocol !== "api-experience-v1" && item.task?.meta?.warmup !== true;
+
+/**
+ * V4 uses measurements already produced by ordinary exam answers. A single
+ * valid pair produces a provisional score; no separate prompts or retries.
+ * Both axes use the same completed-response sample. Decode is visible tokens
+ * per union of actual visible decoding intervals; TTFT remains actual latency.
+ * Neither configured concurrency nor reasoning-inclusive server rate is multiplied in.
+ */
+export function assessLivePerformance(run: Data, ref: FrontierReference = CONCURRENT_FRONTIER_REFERENCE) {
+  const segment = run.execution_segments?.at(-1), segmentStart = requestStamp(segment?.started_at);
+  const concurrency = concurrencyValue(segment?.concurrency) ? segment.concurrency
+    : concurrencyValue(run.config?.concurrency) ? run.config.concurrency : null;
+  const baseline = frontierBaseline(ref), items = uniqueItems(run).filter(ordinaryItem);
+  const paired: Data[] = [], sampleIds: string[] = [], reasons: Record<string, number> = {};
+  const intervals: { start: number; end: number; span: number; tokens: number }[] = [];
+  let observed = 0;
+  const exclude = (reason: string) => { reasons[reason] = (reasons[reason] || 0) + 1; };
+  for (const item of items) {
+    const a = item.attempts?.at(-1), m = a?.metrics;
+    if (!a || !["done", "error", "grading"].includes(item.status) || !a.ended_at) continue;
+    const start = requestStamp(a.started_at), end = requestStamp(a.ended_at);
+    if (finite(segmentStart) && !(start >= segmentStart)) continue;
+    if (actualConcurrency(run, a) !== concurrency) continue;
+    observed++;
+    if (!finite(start) || !finite(end) || end <= start) { exclude("invalid_timestamp"); continue; }
+    if (a.error != null) { exclude("request_error"); continue; }
+    if (a.finish_reason !== "stop") { exclude(a.finish_reason === "length" ? "output_limit" : "incomplete_response"); continue; }
+    if (m?.measurement_version !== BENCH_SCORE_POLICY_V4.measurementVersion || m?.ttft_source !== "client_visible_stream") {
+      exclude("measurement_definition"); continue;
+    }
+    if (m?.ttft_ms == null || m?.client_visible_decode_tps == null) { exclude("missing_pair"); continue; }
+    if (!finite(m.ttft_ms) || m.ttft_ms <= 0 || !finite(m.client_visible_decode_tps) || m.client_visible_decode_tps <= 0 ||
+      !validMetric(a, "ttft_ms") || !validMetric(a, "client_visible_decode_tps")) { exclude("invalid_pair"); continue; }
+    const tokens = m.visible_output_tokens;
+    if (!Number.isSafeInteger(tokens) || tokens < BENCH_SCORE_POLICY_V4.minimumVisibleTokens) { exclude("short_visible_output"); continue; }
+    const span = m.visible_decode_span_ms ?? tokens * 1000 / m.client_visible_decode_tps;
+    if (!finite(span) || span < BENCH_SCORE_POLICY_V4.minimumDecodeSpanMs || !finite(m.wall_ms) || m.wall_ms <= 0 ||
+        m.ttft_ms + span > m.wall_ms + 10 || start + m.ttft_ms + span > end + 10) { exclude("invalid_decode_interval"); continue; }
+    if (Math.abs(end - start - m.wall_ms) > Math.max(100, m.wall_ms * .01)) { exclude("clock_duration_mismatch"); continue; }
+    const expectedRate = tokens * 1000 / span;
+    if (Math.abs(expectedRate - m.client_visible_decode_tps) > Math.max(.01, expectedRate * .01)) { exclude("inconsistent_visible_rate"); continue; }
+    paired.push(a);
+    sampleIds.push(String(item.task.id));
+    intervals.push({ start: start + m.ttft_ms, end: start + m.ttft_ms + span, span, tokens });
+  }
+  const n = paired.length;
+  // Use an origin near the observations before sweep arithmetic, reducing
+  // cancellation with epoch milliseconds. Disjoint intervals exclude pauses.
+  const origin = intervals.length ? intervals.reduce((first, v) => Math.min(first, v.start), Infinity) : 0;
+  const events = intervals.flatMap((v) => [{ at: v.start - origin, change: 1 }, { at: v.end - origin, change: -1 }])
+    .sort((a, b) => a.at - b.at || a.change - b.change);
+  let active = 0, previous = 0, unionMs = 0, peak = 0;
+  for (const event of events) {
+    if (active > 0) unionMs += event.at - previous;
+    active += event.change;
+    peak = Math.max(peak, active);
+    previous = event.at;
+  }
+  const tokenCount = intervals.reduce((sum, v) => sum + v.tokens, 0);
+  const sumMs = intervals.reduce((sum, v) => sum + v.span, 0);
+  const aggregateIssue = n && (!Number.isSafeInteger(tokenCount) || !finite(unionMs) || unionMs <= 0) ? "invalid_decode_total"
+    : n && concurrency == null ? "unknown_concurrency"
+    : n && concurrency != null && peak > concurrency ? "concurrency_overlap" : "";
+  const concurrentDecode = n && !aggregateIssue ? tokenCount * 1000 / unionMs : null;
+  const evidence: PerformanceEvidence = {
+    pairedCount: n, requiredCount: 1, concurrency,
+    decodeMedian: median(paired.map((a) => a.metrics.client_visible_decode_tps)),
+    ttftMedian: median(paired.map((a) => a.metrics.ttft_ms)),
+    decodeScore: null, ttftScore: null, sources: n ? { client_visible_stream: n } : {},
+    baselineDecode: baseline.decode, baselineTtft: baseline.ttft,
+    segmentStartedAt: finite(segmentStart) ? segment.started_at : null,
+    observedCount: observed, excludedCount: observed - n, excludedReasons: reasons,
+    concurrentDecodeTps: concurrentDecode, decodeActiveMs: n ? unionMs : null, decodeTokenCount: n ? tokenCount : null,
+    effectiveDecodeConcurrency: n && unionMs > 0 ? sumMs / unionMs : null,
+    peakDecodeConcurrency: n ? peak : null, aggregateIssue,
+  };
+  const fail = (reason: string) => ({ score: unavailable(reason), evidence, sampleIds });
+  if (baseline.decode == null || baseline.ttft == null) return fail("프론티어 API 기준 실측 자료를 확인할 수 없습니다.");
+  if (!n) return fail(observed
+    ? `현재 동시 요청 구간의 완료 응답 ${observed}건에 유효한 TTFT·Decode 쌍이 없습니다.`
+    : "이 시험의 답변에서 TTFT·Decode가 측정되면 성능 점수가 표시됩니다.");
+  if (aggregateIssue) return fail(aggregateIssue === "concurrency_overlap"
+    ? "가시 Decode 구간의 실제 중첩이 기록된 동시 요청 수를 초과합니다. 요청 시각을 확인하세요."
+    : aggregateIssue === "unknown_concurrency" ? "동시 요청 수가 기록되지 않아 가시 Decode 구간을 검증할 수 없습니다."
+    : "가시 Decode 구간과 토큰 합계를 확인할 수 없습니다.");
+  const decodeRatio = concurrentDecode! / baseline.decode, ttftRatio = baseline.ttft / evidence.ttftMedian!;
+  const value = indexRound(1000 * geometric([decodeRatio, ttftRatio]));
+  if (!finite(value) || value <= 0) return fail("성능 점수의 수치 범위를 확인할 수 없습니다.");
+  evidence.decodeScore = indexRound(1000 * decodeRatio);
+  evidence.ttftScore = indexRound(1000 * ttftRatio);
+  const completed = run.status === "completed" && items.every((item) => ["done", "error"].includes(item.status));
+  const state: ScoreState = completed ? "complete"
+    : ["cancelled", "failed", "error"].includes(run.status) ? "partial" : "provisional";
+  const score: ScoreEstimate = {
+    state, value, lower: value, upper: value, coverage: round(100 * n / observed), measuredOnly: value,
+    reason: `${completed ? "최종" : "잠정"} 성능 · 이 시험의 유효 응답 ${n}건 · 동시 요청 ${concurrency ?? "미기록"}. ${ref.model} 실측을 1,000점으로 환산합니다.`,
+  };
+  return { score, evidence, sampleIds };
+}
+
+/** Current public assessment. Fixed performance packs never gate v4 scores. */
+export function assessRunV4(run: Data | null | undefined, ref: FrontierReference = CONCURRENT_FRONTIER_REFERENCE): FrontierAssessment {
+  const record = run || {}, legacy = assessRunV2(record), allItems = uniqueItems(record);
+  const qualityItems = allItems.filter(ordinaryItem);
+  const quality = assessRunV1({ ...record, items: qualityItems });
+  const { score, evidence: e, sampleIds } = assessLivePerformance(record, ref);
+  const baseComparison = comparisonFor(record, qualityItems);
+  const modelKnown = typeof record.config?.model === "string" && !!record.config.model.trim();
+  const comparisonKey = conditionFingerprint({
+    previousConditions: baseComparison.key, policy: BENCH_SCORE_POLICY_V4.id,
+    model: modelKnown ? record.config.model : null, apiFormat: record.config?.api_format || "chat_completions",
+    reference: { id: ref.id, model: ref.model, measuredAt: ref.measured_at,
+      baselineDecode: e.baselineDecode, baselineTtft: e.baselineTtft,
+      aggregation: BENCH_SCORE_POLICY_V4.baselineAggregation, derivedId: ref.concurrent_baseline?.id },
+    measurementVersion: BENCH_SCORE_POLICY_V4.measurementVersion,
+    sampleAggregation: BENCH_SCORE_POLICY_V4.sampleAggregation,
+    scope: { startedAt: e.segmentStartedAt, concurrency: e.concurrency }, sampleIds,
+  });
+  const usability = score.value == null ? { label: "성능 측정 대기", detail: score.reason } : {
+    label: score.value >= 1000 ? "기준 API 이상의 응답 경험" : "기준 API보다 느린 응답 경험",
+    detail: `출력 속도 지수 ${Math.round(e.decodeScore!)}점 · 첫 답변 지수 ${Math.round(e.ttftScore!)}점 · 유효 응답 ${e.pairedCount}건. 각각 1,000점이 기준과 같습니다.`,
+  };
+  const result: FrontierAssessment = {
+    ...legacy, ...quality, policy: BENCH_SCORE_POLICY_V4.id,
+    performance: score, overall: combineScoresV3(quality.intelligence, score), performanceEvidence: e,
+    usability, reference: ref, experienceCases: [],
+    currentScores: currentScores(record, quality.benchmarks, quality.intelligence, score),
+    legacyV2: { intelligence: legacy.intelligence, performance: legacy.performance, overall: legacy.overall },
+    comparison: { key: `${BENCH_SCORE_POLICY_V4.id}:${comparisonKey}`,
+      complete: baseComparison.complete && modelKnown && referenceReady(ref) && score.value != null, details: [
+      ...baseComparison.details.filter((s) => !s.startsWith("성능 계산에 사용한 정상 paired 표본"))
+        .map((s) => s.replace("성능 측정 출처(Decode/TTFT):", "기록된 계측 출처(Decode/TTFT):")),
+      `기준 ${ref.model} · 추론 ${ref.reasoning_effort} · 측정 ${ref.measured_at || "준비 중"} · 기준 버전 ${ref.id}`,
+      "기존 Sol 12응답의 가시 토큰/Decode 구간 합집합과 TTFT 중앙값을 같은 방식으로 재집계한 파생 기준을 사용합니다. 원본 기준 자료는 유지합니다.",
+      "현재 동시 요청 구간의 정상 일반 응답에서 가시 출력 토큰 합계를 실제 Decode 구간 합집합 시간으로 나눕니다. TTFT는 같은 응답들의 중앙값입니다.",
+      "성능 = 1,000 × √((동시 가시 Decode/기준 Decode) × (기준 TTFT/TTFT)). 설정 동시 수를 곱하거나 TTFT를 나누지 않습니다. 추론·Prefill·대기는 Decode 구간에서 제외되며 전체 Throughput과 다릅니다.",
+      `유효 응답 ${e.pairedCount}건 · 동시 요청 ${e.concurrency ?? "미기록"} · 추론 ${record.config?.reasoning_effort || "기본/미지정"} · API ${record.config?.api_format || "chat_completions"}`,
+      "문항 구성·출력 길이·추론·동시 요청·서비스 부하·네트워크가 다른 실제 API 사용성 지수입니다. 동일 문항을 통제한 엔진·GPU 성능 비교가 아닙니다.",
+      ...(modelKnown ? [] : ["확인 불가: 시험 모델 식별 정보"]),
+    ] },
+  };
+  const guides = guidesFor(record, result).filter((g) => !["latency", "decode", "timing"].includes(g.id))
+    .map((g) => ({ ...g, evidence: g.evidence.replaceAll("v1 지능 구성", "고정 지능 구성") }));
+  if (score.value == null) {
+    const terminal = ["completed", "cancelled", "failed", "error"].includes(record.status);
+    guides.unshift({ id: "frontier", kind: "measurement", title: terminal ? "성능 계측 확인" : "성능 측정 대기", evidence: score.reason,
+      next: terminal ? "저장된 응답의 계측 누락·제외 사유를 확인하세요."
+        : record.status === "paused" ? "이 시험을 재개해 응답의 계측값이 반영되면 자동으로 갱신됩니다."
+        : "진행 중인 시험 응답의 계측값이 반영되면 자동으로 갱신됩니다." });
+  }
+  else if (score.value < 1000) guides.unshift({ id: "frontier-speed", kind: "experience", title: "응답 속도와 첫 답변 대기를 확인하세요", evidence: usability.detail,
+    next: "현재 문항·추론·동시 요청 조건을 함께 확인하세요. 성능 지수는 지능 점수와 별도로 해석합니다." });
+  return { ...result, guides: guides.slice(0, 3) };
+}
+
+/** Single-request experience is the base; matched parallel work can only add a bonus. */
+export const BENCH_SCORE_POLICY_V5 = Object.freeze({
+  id: "bench-single-bonus-v5", baselineScore: 1000,
+  measurementVersion: "client-visible-v1", minimumThroughputGain: 1.1, minimumCompletionGain: 1.1,
+  bonusPerDoubling: 0.1, maximumBonus: 0.3,
+  decodeWeight: 0.5, ttftWeight: 0.5,
+  overallIntelligenceWeight: 0.7, overallPerformanceWeight: 0.3,
+});
+
+function requestConcurrencyV5(run: Data, attempt: Data): number | null {
+  const explicit = attempt.metrics?.request_concurrency ?? attempt.request_concurrency;
+  if (explicit != null) return concurrencyValue(explicit) ? explicit : null;
+  const start = requestStamp(attempt.started_at);
+  const segments = [...(run.execution_segments || [])].sort((a, b) => requestStamp(b.started_at) - requestStamp(a.started_at));
+  for (const segment of segments) {
+    if (finite(start) && start >= requestStamp(segment.started_at))
+      return concurrencyValue(segment.concurrency) ? segment.concurrency : null;
+  }
+  if (concurrencyValue(run.initial_concurrency)) return run.initial_concurrency;
+  // Config may have changed after old responses. Only use it if there is no
+  // recorded transition; otherwise an unknown old request stays unknown.
+  return !segments.length && concurrencyValue(run.config?.concurrency) ? run.config.concurrency : null;
+}
+
+const tuningSettingsKeys = ["base_url", "model", "api_format", "temperature", "max_tokens", "reasoning_effort", "reasoning_parameters", "execution_info"] as const;
+function tuningSettingsMatch(run: Data): boolean {
+  const t = run.concurrency_tuning, snapshot = t?.settings_snapshot;
+  return t?.version === "auto-concurrency-v1" && /^[a-f0-9]{64}$/.test(t.settings_fingerprint || "") &&
+    snapshot && tuningSettingsKeys.every((key) => Object.hasOwn(snapshot, key) &&
+      stable(snapshot[key] ?? null) === stable(run.config?.[key] ?? null));
+}
+
+/** Recheck the saved selected round, not a faster-looking subset or a new winner. */
+function verifiedTuningRound(run: Data, index: unknown, requireScored = true): { round: Data; samples: Data[]; throughput: number } | null {
+  const t = run.concurrency_tuning;
+  if (!tuningSettingsMatch(run) || !Number.isInteger(index) || (index as number) < 0) return null;
+  const r = t.rounds?.[index as number], ids = t.sample_ids;
+  if (!r || r.status !== "completed" || r.settings_fingerprint !== t.settings_fingerprint ||
+      !concurrencyValue(r.concurrency) || !finite(r.elapsed_ms) || r.elapsed_ms <= 0 ||
+      !Array.isArray(ids) || !ids.length || ids.some((id: unknown) => typeof id !== "string" || !id) || new Set(ids).size !== ids.length ||
+      !Array.isArray(r.samples) || r.samples.length !== ids.length) return null;
+  const roundStart = requestStamp(r.started_at), roundEnd = requestStamp(r.ended_at);
+  if (!finite(roundStart) || !finite(roundEnd) || roundEnd <= roundStart || r.elapsed_ms > roundEnd - roundStart + 100) return null;
+  const rows = new Map<string, Data>();
+  let tokens = 0, sumWall = 0, maxWall = 0;
+  for (const s of r.samples) {
+    const a = s.attempt, m = a?.metrics;
+    if (!ids.includes(s.task_id) || rows.has(s.task_id) || !/^[a-f0-9]{64}$/.test(s.prompt_sha256 || "") ||
+        !a || a.error != null || !["stop", "eos", "end_turn"].includes(a.finish_reason) || !m ||
+        !Number.isSafeInteger(m.output_tokens) || m.output_tokens <= 0 ||
+        !finite(m.wall_ms) || m.wall_ms <= 0 || a.metric_quality?.valid?.throughput === false) return null;
+    if (requireScored && (a.score?.state !== "scored" || !finite(a.score.value) || a.score.value < 0 || a.score.value > 1)) return null;
+    if (m.request_concurrency != null && m.request_concurrency !== r.concurrency) return null;
+    for (const key of ["visible_output_tokens", "reasoning_tokens"]) {
+      if (m[key] != null && (!Number.isSafeInteger(m[key]) || m[key] < 0 || m[key] > m.output_tokens)) return null;
+    }
+    if (m.visible_output_tokens != null && m.reasoning_tokens != null && m.visible_output_tokens + m.reasoning_tokens !== m.output_tokens) return null;
+    const start = requestStamp(a.started_at), end = requestStamp(a.ended_at);
+    if (!finite(start) || !finite(end) || start < roundStart - 100 || end > roundEnd + 100 || end <= start ||
+        Math.abs(end - start - m.wall_ms) > Math.max(100, m.wall_ms * .01)) return null;
+    tokens += m.output_tokens; sumWall += m.wall_ms; maxWall = Math.max(maxWall, m.wall_ms);
+    rows.set(s.task_id, s);
+  }
+  if (!Number.isSafeInteger(tokens) || !finite(sumWall) || r.elapsed_ms + 100 < Math.max(maxWall, sumWall / r.concurrency)) return null;
+  const throughput = tokens * 1000 / r.elapsed_ms;
+  if (!finite(throughput) || throughput <= 0 || (r.throughput_tps != null &&
+      (!finite(r.throughput_tps) || Math.abs(r.throughput_tps - throughput) > Math.max(.01, throughput * .01)))) return null;
+  return { round: r, samples: ids.map((id: string) => rows.get(id)!), throughput };
+}
+
+type BonusEvidence = Pick<PerformanceEvidence, "bonusState" | "bonusReason" | "throughputGain" | "completionGain" | "bonusConcurrency" | "bonusSampleCount" | "cacheControl"> & { fraction: number };
+export function assessConcurrencyBonus(run: Data): BonusEvidence {
+  const t = run.concurrency_tuning;
+  const result: BonusEvidence = { fraction: 0, bonusState: "unmeasured", bonusReason: "동일 문항의 단일·동시 요청 비교가 기록되지 않았습니다.", throughputGain: null, completionGain: null, bonusConcurrency: null, bonusSampleCount: 0 };
+  if (!t) return result;
+  result.cacheControl = t.cache_control;
+  if (["baseline", "testing"].includes(t.status)) return run.config?.auto_concurrency === true
+    ? { ...result, bonusState: "pending", bonusReason: "동일 문항의 동시 처리 효과를 확인하고 있습니다." }
+    : { ...result, bonusReason: "자동 비교가 중단되어 단일 요청 점수만 표시합니다." };
+  const fail = (reason: string): BonusEvidence => ({ ...result, bonusState: "invalid", bonusReason: reason });
+  if (t.status !== "completed" || !tuningSettingsMatch(run)) return fail("완료된 동일 설정 비교 근거가 없어 단일 요청 점수만 표시합니다.");
+  const baseline = verifiedTuningRound(run, t.baseline_round_index);
+  if (!baseline || baseline.round.concurrency !== 1 || baseline.samples.length < 2) return fail("단일 요청 비교 기준의 완결성·계측을 확인할 수 없습니다.");
+  if (t.selected_concurrency === 1) return { ...result, bonusState: "no_gain", bonusReason: "동시 처리 이득이 확인되지 않아 단일 요청 점수를 유지합니다.", bonusConcurrency: 1, bonusSampleCount: baseline.samples.length };
+  const selected = verifiedTuningRound(run, t.selected_round_index);
+  if (!selected || selected.round.concurrency !== t.selected_concurrency || selected.round.concurrency <= 1 ||
+      !concurrencyValue(t.max_concurrency) || t.max_concurrency > 8 || selected.round.concurrency > t.max_concurrency ||
+      selected.samples.some((s, n) => s.task_id !== baseline.samples[n].task_id || s.prompt_sha256 !== baseline.samples[n].prompt_sha256 ||
+        s.attempt.score.value < baseline.samples[n].attempt.score.value))
+    return fail("동시 요청의 문항·설정·정상 완료 근거가 단일 요청 비교 기준과 일치하지 않습니다.");
+  const gain = selected.throughput / baseline.throughput, completionGain = baseline.round.elapsed_ms / selected.round.elapsed_ms;
+  if (!finite(gain) || !finite(completionGain) || !finite(t.throughput_gain) || !finite(t.completion_gain) ||
+      Math.abs(gain - t.throughput_gain) > Math.max(.0001, gain * .01) ||
+      Math.abs(completionGain - t.completion_gain) > Math.max(.0001, completionGain * .01))
+    return fail("저장된 동시 처리 증가율이 원시 토큰·완료 시간과 일치하지 않습니다.");
+  const measured = { ...result, throughputGain: gain, completionGain, bonusConcurrency: selected.round.concurrency, bonusSampleCount: baseline.samples.length };
+  if (gain < BENCH_SCORE_POLICY_V5.minimumThroughputGain || completionGain < BENCH_SCORE_POLICY_V5.minimumCompletionGain)
+    return { ...measured, bonusState: "no_gain", bonusReason: "처리량과 완료 시간 모두에서 10% 이상의 이득이 없어 가산하지 않습니다." };
+  return { ...measured, bonusState: "measured", bonusReason: "동일 문항·설정의 전체 출력 Throughput 및 완료 시간 개선을 확인했습니다.",
+    fraction: Math.min(BENCH_SCORE_POLICY_V5.maximumBonus, BENCH_SCORE_POLICY_V5.bonusPerDoubling * Math.log2(gain)) };
+}
+
+/** All valid ordinary c1 history is retained when the run changes to c4/c8. */
+export function assessSingleBonusPerformance(run: Data, ref: FrontierReference = CONCURRENT_FRONTIER_REFERENCE) {
+  const allItems = uniqueItems(run);
+  const singleItems = (items: Data[], accept: (attempt: Data) => boolean = () => true): Data[] => items.flatMap((i) =>
+    (i.attempts || []).flatMap((a: Data, index: number) => requestConcurrencyV5(run, a) === 1 && accept(a) ? [{
+      ...i, task: { ...i.task, id: i.attempts.length > 1 ? `${i.task.id}:attempt:${index}` : i.task.id },
+      // A later retry must not erase a completed earlier c1 observation.
+      status: a.ended_at ? (a.error == null ? "done" : "error") : i.status,
+      attempts: [{ ...a, finish_reason: ["eos", "end_turn"].includes(a.finish_reason) ? "stop" : a.finish_reason,
+        metrics: { ...a.metrics, request_concurrency: 1 } }],
+    }] : []));
+  const assess = (items: Data[]) => assessLivePerformance({ ...run, config: { ...run.config, concurrency: 1 }, execution_segments: [], items }, ref);
+  const ordinary = singleItems(allItems.filter(ordinaryItem));
+  let measured = assess(ordinary), used = ordinary;
+  let source: NonNullable<PerformanceEvidence["singleSource"]> = measured.score.value == null ? "none" : "ordinary";
+
+  const legacyItems = singleItems(allItems.filter((i) => experienceItem(i) && i.task?.meta?.warmup !== true &&
+      i.task?.meta?.performance_protocol === BENCH_SCORE_POLICY_V3.protocol),
+    (a) => a.score?.state === "measured" && a.score?.scorer_version === BENCH_SCORE_POLICY_V3.outputValidation && a.score?.extra?.valid_output === true)
+    .map((i) => ({ ...i, task: { ...i.task, id: `legacy-c1:${i.task.id}`, scorer: "legacy-timing", meta: {} } }));
+  const legacy = assess(legacyItems);
+  if (source === "none") {
+    const baseline = verifiedTuningRound(run, run.concurrency_tuning?.baseline_round_index, false);
+    if (baseline?.round.concurrency === 1) {
+      const calibrationItems = baseline.samples.map((s) => ({ task: { id: s.task_id, scorer: "calibration-timing" }, status: "done",
+        attempts: [{ ...s.attempt, finish_reason: ["eos", "end_turn"].includes(s.attempt.finish_reason) ? "stop" : s.attempt.finish_reason,
+          metrics: { ...s.attempt.metrics, request_concurrency: 1 } }] }));
+      const calibration = assess(calibrationItems);
+      if (calibration.score.value != null) { measured = calibration; used = calibrationItems; source = "calibration"; }
+      else if (!measured.evidence.observedCount && calibration.evidence.observedCount) {
+        // Retain the reason a recorded probe was rejected (for example a
+        // too-short visible interval), rather than reporting it as absent.
+        measured = calibration; used = calibrationItems;
+      }
+    }
+  }
+  if (source === "none" && legacy.score.value != null) { measured = legacy; used = legacyItems; source = "legacy-experience"; }
+  const bonus = assessConcurrencyBonus(run), base = measured.score.value;
+  const fraction = bonus.bonusState === "measured" ? bonus.fraction : 0;
+  const total = base == null ? null : indexRound(base * (1 + fraction));
+  const counts: Record<string, number> = {};
+  const validIds = new Set(measured.sampleIds);
+  for (const i of used) if (validIds.has(String(i.task.id))) {
+    const id = source === "legacy-experience" ? "legacy-experience" : benchmarkKey(i.task) || "custom";
+    counts[id] = (counts[id] || 0) + 1;
+  }
+  const e: PerformanceEvidence = { ...measured.evidence,
+    singleScore: base, singleN: measured.evidence.pairedCount, singleSource: source, singleBenchmarkCounts: counts,
+    concurrencyBonus: total == null || !["measured", "no_gain"].includes(bonus.bonusState!) ? null : indexRound(total - base!),
+    // null distinguishes "not measured" from a measured zero-gain result.
+    concurrencyBonusPercent: ["measured", "no_gain"].includes(bonus.bonusState!) ? round(100 * fraction) : null,
+    throughputGain: bonus.throughputGain, completionGain: bonus.completionGain,
+    bonusState: bonus.bonusState, bonusReason: bonus.bonusReason, bonusConcurrency: bonus.bonusConcurrency,
+    bonusSampleCount: bonus.bonusSampleCount, cacheControl: bonus.cacheControl,
+    legacySingleCount: legacy.evidence.pairedCount, legacySingleScore: legacy.score.value,
+  };
+  const sourceText = source === "calibration" ? "시작 비교의 단일 요청" : source === "legacy-experience" ? "저장된 단일 요청 성능 문항" : "이 시험의 단일 요청";
+  const score = total == null ? unavailable("유효한 단일 요청 TTFT·Decode가 아직 기록되지 않았습니다.") : {
+    ...measured.score, value: total, lower: total, upper: total, measuredOnly: total,
+    reason: `${sourceText} ${e.singleN}건 기준 ${base}점${bonus.bonusState === "measured" ? ` + 동시 처리 ${e.concurrencyBonusPercent}%` : bonus.bonusState === "no_gain" ? " · 동시 가산 없음" : " · 동시 처리 가산 미확정"}. ${ref.model} 실측은 1,000점입니다.`,
+  };
+  return { score, evidence: e, sampleIds: measured.sampleIds };
+}
+
+/** Current public assessment: ordinary scores never include calibration answers. */
+export function assessRun(run: Data | null | undefined, ref: FrontierReference = CONCURRENT_FRONTIER_REFERENCE): FrontierAssessment {
+  const record = run || {}, previous = assessRunV4(record, ref);
+  const { score, evidence: e, sampleIds } = assessSingleBonusPerformance(record, ref);
+  const baseComparison = comparisonFor(record, uniqueItems(record).filter(ordinaryItem));
+  const key = conditionFingerprint({ conditions: baseComparison.key, policy: BENCH_SCORE_POLICY_V5.id,
+    reference: ref.concurrent_baseline, model: record.config?.model, sampleIds,
+    source: e.singleSource, tuning: record.concurrency_tuning ? {
+      settings: record.concurrency_tuning.settings_fingerprint, baseline: record.concurrency_tuning.baseline_round_index,
+      selected: record.concurrency_tuning.selected_round_index, gain: e.throughputGain, bonusState: e.bonusState,
+    } : null });
+  const bonusLabel = e.bonusState === "measured" ? `동시 처리 가산 ${e.concurrencyBonusPercent}%`
+    : e.bonusState === "no_gain" ? "동시 가산 없음" : "동시 가산 미측정";
+  const usability = score.value == null ? { label: "성능 측정 대기", detail: score.reason } : {
+    label: score.value >= 1000 ? "기준 API 이상의 성능 지수" : "기준 API보다 낮은 성능 지수",
+    detail: `단일 요청 ${Math.round(e.singleScore!)}점 · ${bonusLabel} · 단일 요청 유효 ${e.singleN}건`,
+  };
+  const result: FrontierAssessment = { ...previous, policy: BENCH_SCORE_POLICY_V5.id, performance: score,
+    overall: combineScoresV3(previous.intelligence, score), performanceEvidence: e, usability,
+    currentScores: currentScores(record, previous.benchmarks, previous.intelligence, score),
+    comparison: { key: `${BENCH_SCORE_POLICY_V5.id}:${key}`, complete: baseComparison.complete && referenceReady(ref) && score.value != null, details: [
+      ...baseComparison.details.filter((s) => !s.startsWith("성능 계산에 사용한 정상 paired 표본")),
+      `기준 ${ref.model} · 추론 ${ref.reasoning_effort} · 측정 ${ref.measured_at || "준비 중"} · 기준 버전 ${ref.id}`,
+      "단일 요청 기본점수 = 1,000 × √((단일 가시 Decode/기준 Decode) × (기준 TTFT/단일 TTFT)). 같은 Sol 12응답에서 재집계한 기준이며 원본 자료는 유지합니다.",
+      "동시 처리 가산 = 기본점수 × min(30%, 10% × log₂(실측 Throughput 증가율)). 동일 문항·설정에서 정상 완료하고 처리량·완료 시간 모두 10% 이상 개선된 경우에만 적용하는 베타 정책입니다.",
+      "동시 요청의 길어진 TTFT는 단일 요청 기본점수에 반영하지 않습니다. 동시 수를 곱해 처리량을 추정하지 않습니다.",
+      `단일 요청 ${e.singleN}건 · 출처 ${e.singleSource} · ${bonusLabel}`,
+      e.bonusReason || "",
+      "문항 구성·출력 길이·추론·서비스 부하·네트워크가 다른 API 사용성 지수입니다. 캐시 정책은 공급자 기본값이며 이 지수만으로 GPU·엔진 우열을 단정하지 않습니다.",
+    ].filter(Boolean) },
+  };
+  const guides = guidesFor(record, result).filter((g) => !["latency", "decode", "timing"].includes(g.id));
+  if (score.value == null) guides.unshift({ id: "frontier", kind: "measurement", title: "단일 요청 계측 확인", evidence: score.reason,
+    next: ["completed", "cancelled", "failed", "error"].includes(record.status) ? "저장된 응답의 단일 요청 기록과 제외 사유를 확인하세요." : "진행 중인 시험에서 단일 요청 계측이 반영되면 자동으로 표시됩니다." });
+  else if (e.singleScore! < 1000) guides.unshift({ id: "frontier-speed", kind: "experience", title: "단일 요청 속도와 첫 답변 대기를 확인하세요", evidence: usability.detail,
+    next: "모델·추론 설정과 서비스 대기를 함께 확인하세요. 동시 처리 이득은 별도로 가산합니다." });
   return { ...result, guides: guides.slice(0, 3) };
 }

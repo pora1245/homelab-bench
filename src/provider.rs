@@ -298,6 +298,14 @@ impl Acc {
             None
         };
         Metrics {
+            request_concurrency: None,
+            visible_decode_span_ms: self.first.zip(self.last).map(|(f, l)| l - f),
+            visible_stream_chunks: (stream == Some(true)).then_some(self.visible_chunks),
+            server_decode_ms: self.timings["predicted_ms"].as_f64(),
+            server_decode_tokens: self.timings["predicted_n"].as_u64(),
+            server_prefill_ms: self.timings["prompt_ms"].as_f64(),
+            server_prefill_tokens: self.timings["prompt_n"].as_u64(),
+            grading_ms: None,
             measurement_version: "client-visible-v1".into(),
             reasoning_ttft_ms: if stream == Some(true) {
                 self.first_reasoning

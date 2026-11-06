@@ -18,6 +18,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 requests = []
+preflight_requests = []
 request_auth = []
 recover = False
 delay_judge = False
@@ -39,7 +40,8 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(value).encode())
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        requests.append(body)
+        probe = body["messages"][0]["content"].startswith("Write a plain, factual paragraph")
+        (preflight_requests if probe else requests).append(body)
         request_auth.append({"path":self.path,"model":body["model"],"authorization":self.headers.get("Authorization", "")})
         prompt = body["messages"][0]["content"]
         if prompt == "http-error" and not recover:
@@ -82,6 +84,10 @@ def main():
         req=urllib.request.Request(base+"/api/"+path, data=None if body is None else json.dumps(body).encode(), headers=headers)
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.load(r)
+    def start_run(body):
+        probe = api("preflight", body)
+        assert probe["status"] in ("ready", "limited"), probe
+        return api("runs", {**body, "preflight_token": probe["preflight_token"], "allow_limited_metrics": True})
     def wait(id, states=("completed",), timeout=30):
         until=time.monotonic()+timeout
         while time.monotonic()<until:
@@ -101,7 +107,7 @@ def main():
         raise AssertionError("live TTFT not published")
     with tempfile.TemporaryDirectory(prefix="llm-bench-test-") as data:
         env["BENCH_DATA_DIR"]=data
-        log=open(ROOT/"evidence/integration-server.log","w")
+        log=open(Path(data)/"integration-server.log","w")
         def boot():
             p=subprocess.Popen([str(ROOT/"target/debug/llm-bench")], cwd=ROOT, env=env, stdout=log, stderr=log)
             for _ in range(100):
@@ -188,12 +194,28 @@ def main():
             ui_pack=copy.deepcopy(pack);ui_pack["id"]="ui-start-fixture";ui_pack["tasks"]=ui_pack["tasks"][:1]
             api("packs",ui_pack)
             ui_config=dict(c,name="",pack_id=ui_pack["id"],judge=None,judge_connection_id=None,device_id=None,telemetry_url="")
-            ui_id=api("runs",{"config":ui_config,"connection_id":saved["id"],"judge_connection_id":None,"device_id":None})["id"]
+            probe_body={"config":ui_config,"connection_id":saved["id"],"judge_connection_id":None,"device_id":None}
+            before_runs=len(api("runs"));before_probes=len(preflight_requests)
+            try:
+                api("runs",probe_body);raise AssertionError("missing preflight ticket accepted")
+            except urllib.error.HTTPError as exc:
+                assert_ok(exc.code==400 and len(api("runs"))==before_runs and len(preflight_requests)==before_probes,"missing preflight ticket blocks dispatch without model calls")
+            probe=api("preflight",probe_body)
+            assert_ok(probe["status"] in ("ready","limited") and len(preflight_requests)==before_probes+1 and len(api("runs"))==before_runs,"real streaming preflight is separate from scored run history")
+            if probe["status"]=="limited":
+                try:
+                    api("runs",dict(probe_body,preflight_token=probe["preflight_token"]));raise AssertionError("limited metrics silently accepted")
+                except urllib.error.HTTPError as exc:assert_ok(exc.code==400,"limited preflight requires explicit acknowledgement")
+            changed=copy.deepcopy(probe_body);changed["config"]["concurrency"]=4
+            try:
+                api("runs",dict(changed,preflight_token=probe["preflight_token"],allow_limited_metrics=True));raise AssertionError("changed settings reused stale preflight")
+            except urllib.error.HTTPError as exc:assert_ok(exc.code==400,"preflight ticket cannot be reused after measurement settings change")
+            ui_id=start_run({"config":ui_config,"connection_id":saved["id"],"judge_connection_id":None,"device_id":None})["id"]
             ui_run=wait(ui_id)
             assert_ok(ui_run["status"]=="completed" and ui_run["summary"]["completed"]==1 and ui_run["config"]["name"].startswith("contract-fixture"),"browser new test accepts no judge/device and generates a default name")
-            ui_again=api("runs",{"config":dict(ui_config,judge_connection_id="",device_id=""),"connection_id":saved["id"],"judge_connection_id":"","device_id":""})["id"]
+            ui_again=start_run({"config":dict(ui_config,judge_connection_id="",device_id=""),"connection_id":saved["id"],"judge_connection_id":"","device_id":""})["id"]
             assert_ok(wait(ui_again)["summary"]["completed"]==1 and ui_again!=ui_id,"another new test starts after the previous test completes")
-            rid=api("runs",{"config":c,"api_key":"SECRET-TARGET","judge_key":"SECRET-JUDGE"})["id"]
+            rid=start_run({"config":c,"api_key":"SECRET-TARGET","judge_key":"SECRET-JUDGE"})["id"]
             early=api("runs/"+rid)
             assert_ok(all(i["task"]["answer"] is None for i in early["items"] if i["status"] not in ("done","error")),"answers hidden until response completion")
             r=wait(rid)
@@ -215,7 +237,7 @@ def main():
             before=len(requests); api("runs/"+rid+"/rescore",{"judge_key":"SECRET-JUDGE"}); r=wait(rid)
             assert_ok(len(requests)==before+1,"rescore invokes judge only; target answers reused")
             c2=copy.deepcopy(c);c2["model"]="wrong-fixture";c2["name"]="comparison"
-            rid2=api("runs",{"config":c2})["id"];wait(rid2)
+            rid2=start_run({"config":c2})["id"];wait(rid2)
             cmp=api(f"compare/{rid}/{rid2}")
             assert_ok(cmp["correct_to_wrong"]==["numeric"] and cmp["paired"]==9,"paired correct-to-wrong comparison")
             try:api("packs",pack,origin="https://untrusted.example")
@@ -225,7 +247,7 @@ def main():
             api("packs",quick)
             saved_config=copy.deepcopy(c);saved_config.update(base_url="http://127.0.0.1:1",model="must-be-resolved",pack_id="quick-fixture",profile="quick",connection_id=saved["id"],judge_connection_id=judge["id"],device_id=device["id"])
             auth_start=len(request_auth)
-            saved_id=api("runs",{"config":saved_config})["id"];saved_run=wait(saved_id)
+            saved_id=start_run({"config":saved_config})["id"];saved_run=wait(saved_id)
             assert_ok([i["task"]["id"] for i in saved_run["items"]]==["numeric","unicode","judge-task"],"quick profile uses pack quick_ids rather than first N tasks")
             assert_ok(saved_run["config"]["model"]=="contract-fixture" and saved_run["config"]["device_name"]=="Fixture sensors" and saved_run["summary"]["errors"]==0,"run resolves saved target judge and device profiles")
             generated=[a for a in request_auth[auth_start:] if a["model"]]
@@ -233,13 +255,35 @@ def main():
             live=copy.deepcopy(pack);live["id"]="live-ttft-fixture";live["tasks"]=[dict(pack["tasks"][3],id="live-ttft",prompt="live-ttft",answer="ok")]
             api("packs",live)
             live_config=copy.deepcopy(saved_config);live_config.update(pack_id=live["id"],profile="full")
-            live_id=api("runs",{"config":live_config})["id"];measured_ttft=wait_live_ttft(live_id);live_run=wait(live_id)
+            live_id=start_run({"config":live_config})["id"];measured_ttft=wait_live_ttft(live_id);live_run=wait(live_id)
             live_metrics=live_run["items"][0]["attempts"][0]["metrics"]
             assert_ok(live_metrics["ttft_ms"]==measured_ttft and live_metrics["ttft_source"]=="client_visible_stream","final TTFT matches live first-chunk measurement despite plain-text MIME")
             assert_ok(any(t.get("status")=="connected" and t.get("device_id")==device["id"] for t in live_run["telemetry"]),"running benchmark records selected device samples")
             slow=copy.deepcopy(pack);slow["id"]="slow-v1";slow["tasks"]=[dict(pack["tasks"][3],id=f"slow-{i}",prompt="slow",answer="ok") for i in range(8)]
             api("packs",slow); c3=copy.deepcopy(saved_config);c3.update(pack_id="slow-v1",profile="full",concurrency=1)
-            rid3=api("runs",{"config":c3})["id"];time.sleep(.15);api("runs/"+rid3+"/pause",{});r=wait(rid3,("paused",))
+            segmented_id=start_run({"config":c3})["id"]
+            try:
+                api(f"runs/{segmented_id}/concurrency",{"concurrency":4});raise AssertionError("active concurrency change accepted")
+            except urllib.error.HTTPError as exc:assert_ok(exc.code==400,"active run rejects concurrency changes")
+            api(f"runs/{segmented_id}/pause",{});paused=wait(segmented_id,("paused",))
+            before_segment=api("export/"+segmented_id)
+            changed=api(f"runs/{segmented_id}/concurrency",{"concurrency":4})
+            after_segment=api("export/"+segmented_id)
+            assert_ok(changed["concurrency"]==4 and len(changed["execution_segments"])==2 and after_segment["items"]==before_segment["items"] and after_segment["suite_hash"]==before_segment["suite_hash"],"paused concurrency change preserves answers, grades, pending tasks and suite identity")
+            assert_ok(changed["execution_segments"][-1]["completed_before"]==paused["summary"]["completed"],"new timing segment records completed count before change")
+            api(f"runs/{segmented_id}/resume",{})
+            deadline=time.monotonic()+3
+            while time.monotonic()<deadline:
+                active_segment=api("runs/"+segmented_id)
+                if sum(i["status"]=="running" for i in active_segment["items"])==4:break
+                time.sleep(.02)
+            else:raise AssertionError("four concurrent fixture requests not observed")
+            assert_ok(True,"resumed segment dispatches four simultaneous requests")
+            segmented=wait(segmented_id);cut=paused["summary"]["completed"]
+            assert_ok(all(i["attempts"][-1]["metrics"]["request_concurrency"]==4 for i in segmented["items"][cut:]),"new requests retain per-attempt concurrency metadata")
+            scope=segmented["summary"]["current_segment_stats"]["scope"]
+            assert_ok(scope["concurrency"]==4 and scope["request_count"]==8-cut and scope["ignored_previous_requests"]==cut,"speed summary separates new concurrent segment from earlier single requests")
+            rid3=start_run({"config":c3})["id"];time.sleep(.15);api("runs/"+rid3+"/pause",{});r=wait(rid3,("paused",))
             assert_ok(r["summary"]["completed"]==1,"pause drains current request and stops dispatch")
             api("runs/"+rid3+"/resume",{});time.sleep(.15)
             process.kill();process.wait();process=boot();r=api("runs/"+rid3)
@@ -267,7 +311,7 @@ def main():
             api("packs",grading_pack)
             grading_config=copy.deepcopy(saved_config);grading_config.update(pack_id=grading_pack["id"],profile="full",concurrency=1)
             delay_judge=True
-            grading_id=api("runs",{"config":grading_config})["id"]
+            grading_id=start_run({"config":grading_config})["id"]
             deadline=time.monotonic()+5
             while time.monotonic()<deadline:
                 grading_run=api("runs/"+grading_id)
@@ -286,7 +330,7 @@ def main():
             api("packs",checkpoint_pack)
             checkpoint_config=copy.deepcopy(live_config);checkpoint_config.update(pack_id=checkpoint_pack["id"],timeout_s=15)
             checkpoint_release.clear()
-            checkpoint_id=api("runs",{"config":checkpoint_config})["id"];ttft=wait_live_ttft(checkpoint_id)
+            checkpoint_id=start_run({"config":checkpoint_config})["id"];ttft=wait_live_ttft(checkpoint_id)
             deadline=time.monotonic()+7
             with sqlite3.connect(Path(data,"app.sqlite3")) as conn:
                 while time.monotonic()<deadline:
@@ -302,7 +346,7 @@ def main():
             # one nanosecond in these millisecond measurements; timestamps stay exact.
             assert_ok(checkpoint_run["status"]=="interrupted" and checkpoint_run["items"][0]["status"]=="pending" and partial["output"]=="ok" and math.isclose(partial["metrics"]["ttft_ms"],ttft,rel_tol=1e-14,abs_tol=1e-12) and partial["started_at"]==checkpoint["attempts"][-1]["started_at"] and partial["error"] is not None,f"restart preserves checkpointed partial response and measured TTFT (observed={checkpoint_run['status']}/{checkpoint_run['items'][0]['status']}, ttft={partial['metrics']['ttft_ms']}/{ttft})")
             checkpoint_release.clear()
-            failure_id=api("runs",{"config":checkpoint_config})["id"];wait_live_ttft(failure_id)
+            failure_id=start_run({"config":checkpoint_config})["id"];wait_live_ttft(failure_id)
             # Inject a write failure only into this synthetic run's temporary DB.
             with sqlite3.connect(Path(data,"app.sqlite3")) as conn:
                 conn.execute(f"CREATE TRIGGER fixture_write_failure BEFORE UPDATE ON run_items WHEN NEW.run_id='{failure_id}' BEGIN SELECT RAISE(FAIL, 'fixture write failure'); END")
@@ -343,7 +387,7 @@ def main():
                 with sqlite3.connect(Path(data,"app.sqlite3")) as conn:
                     conn.execute("DROP TRIGGER control_write_failure")
                 # Another run must start without restarting the app or cancelling a phantom job.
-                probe_id=api("runs",{"config":ui_config,"connection_id":saved["id"]})["id"];wait(probe_id)
+                probe_id=start_run({"config":ui_config,"connection_id":saved["id"]})["id"];wait(probe_id)
                 assert_ok(api("runs/"+probe_id)["status"]=="completed",f"{action} save failure leaves active slot available")
                 api("runs/"+transition_id+"/"+action,{"api_key":""});wait(transition_id)
                 assert_ok(api("runs/"+transition_id)["status"]=="completed",f"{action} succeeds after storage recovers without app restart")
@@ -353,7 +397,7 @@ def main():
             assert_ok(len(requests[before:])==1 and requests[before]["model"]=="judge-fixture" and rescored["summary"]["score_errors"]==0,"rescore after restart needs no deleted target connection")
             db=Path(data,"app.sqlite3").read_bytes()
             assert_ok(all(secret not in db for secret in [b"SECRET-TARGET",b"SECRET-JUDGE",b"PERSIST-TARGET",b"PERSIST-JUDGE"]),"keys absent from persisted database")
-            (ROOT/"evidence/integration.json").write_text(json.dumps({"passed":len(checks),"checks":checks,"source":"synthetic API fixture; not benchmark measurements"},ensure_ascii=False,indent=2))
+            Path(os.environ.get("BENCH_TEST_REPORT", "/tmp/llm-bench-integration.json")).write_text(json.dumps({"passed":len(checks),"checks":checks,"source":"synthetic API fixture; not benchmark measurements"},ensure_ascii=False,indent=2))
             print(json.dumps({"passed":len(checks),"checks":checks},ensure_ascii=False))
         finally:
             process.terminate()
@@ -362,5 +406,4 @@ def main():
             log.close();fixture.shutdown()
 
 if __name__=="__main__":
-    (ROOT/"evidence").mkdir(exist_ok=True)
     main()

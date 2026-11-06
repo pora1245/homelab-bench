@@ -24,7 +24,6 @@ import "./home.css";
 export type HomeTestIntent = {
   pack_id: "collection-full-v1";
   profile: "full" | "quick";
-  concurrency: 1;
 };
 export type HomeReportFormat = "overview" | "intelligence" | "performance";
 export type HomeProps = {
@@ -40,17 +39,17 @@ export type HomeProps = {
 const statusText = (score: ScoreEstimate) =>
   ({
     unavailable: "자료 필요",
-    partial: "잠정 범위",
-    provisional: "표본 결과 · 잠정",
-    complete: "산출 완료",
+    partial: "부분 평가 · 잠정",
+    provisional: "잠정",
+    complete: "완료",
   })[score.state];
 const scoreHelp = {
   overview:
-    "100점 만점입니다. 지능 70%·API 사용성 30%의 기하평균이며, 성능 1,000점 이상은 종합 계산에서 만점으로 처리합니다. 성능 점수 자체는 계속 올라갑니다. 평가가 덜 끝났으면 가능한 범위로 표시합니다. 가중치는 공개된 제품 정책입니다.",
+    "100점 만점입니다. 지능 70%·API 사용성 30%의 기하평균이며, 성능 1,000점 이상은 종합 계산에서 만점으로 처리합니다. 성능 점수 자체는 계속 올라갑니다. 진행 중에는 채점된 영역 기준 잠정 점수를 표시합니다. 미평가 영역은 상세에서 확인할 수 있습니다.",
   intelligence:
-    "수학·지식·지시 이행·코딩에 각각 25%의 고정 비중을 적용합니다. 누락한 영역을 0점으로 넣거나 다른 영역으로 대신하지 않습니다. 범위는 미채점 부분이 모두 0~1점을 받을 때의 산술적 가능 범위이며 신뢰구간이 아닙니다. 참고용 자체 정형 지시는 제외합니다.",
+    "수학·지식·지시 이행·코딩에 각각 25%의 고정 비중을 적용합니다. 진행 중에는 채점된 평가별 평균을 이 비중으로 합산한 잠정 점수입니다. 미평가 영역을 대신 채우지 않으며, 완료 점수와 구분합니다. 가능한 최종 범위는 상세에 표시합니다.",
   performance:
-    "GPT-6.1 Sol API의 실제 응답 경험을 1,000점으로 둡니다. 영어·한국어·코드·JSON 각 3회의 가시 출력 속도와 TTFT를 기준 API와 비교하고 같은 비중의 기하평균으로 합칩니다. 네트워크·대기·추론이 포함되며 상한은 없습니다.",
+    "단일 요청의 가시 Decode와 TTFT를 GPT-6.1 Sol 실측 기준과 비교해 기본점수를 계산합니다. 같은 문항·설정에서 검증된 동시 처리 이득은 최대 30% 가산하며, 성능 점수에는 상한이 없습니다. 동시 요청의 길어진 TTFT로 기본점수를 낮추지 않습니다. 문항 구성·추론 설정·부하의 영향을 받습니다.",
 };
 function ScoreCard({
   title,
@@ -97,12 +96,12 @@ function ScoreCard({
       {bounded ? <div className="home-score-scale" aria-hidden="true">
         {score.lower != null && (
           <>
-            <i className="known" style={{ width: `${score.lower}%` }} />
+            <i className="known" style={{ width: `${score.value ?? score.lower}%` }} />
             <i
               className="unmeasured"
               style={{
                 left: `${score.lower}%`,
-                width: `${Math.max(0, (score.upper ?? score.lower) - score.lower)}%`,
+                width: `${score.value == null ? Math.max(0, (score.upper ?? score.lower) - score.lower) : 0}%`,
               }}
             />
           </>
@@ -110,14 +109,14 @@ function ScoreCard({
       </div> : <div className="home-score-baseline">상한 없음 · 기준 1,000점</div>}
       <p>
         {kind === "performance"
-          ? "한 번에 한 요청의 응답 경험"
+          ? "현재 시험 조건의 응답 경험"
           : score.state === "partial"
-            ? kind === "overview" ? "미측정 지능 영역을 범위로 반영" : `평가 범위 ${number(score.coverage)}% 확인`
+            ? `평가 범위 ${number(score.coverage)}%`
             : score.state === "unavailable"
-              ? "산출에 필요한 자료를 모으는 중"
+              ? "측정 대기"
               : kind === "intelligence"
-                ? "고정된 영역별 비중으로 계산"
-                : "지능과 단일 요청 성능을 함께 반영"}
+                ? "영역별 가중 점수"
+                : "지능 + 응답 성능"}
       </p>
       <button className="home-report-link" onClick={onReport}>
         {title} 보고서
@@ -137,11 +136,11 @@ export function Home({
 }: HomeProps) {
   const assessment = useMemo(() => assessRun(run), [run]);
   const performance = assessment.performanceEvidence;
+  const current = assessment.currentScores;
   const completeSetup = () =>
     onNewTest({
       pack_id: "collection-full-v1",
       profile: "full",
-      concurrency: 1,
     });
   if (loading && !run)
     return (
@@ -189,9 +188,7 @@ export function Home({
     <section className="bench-home">
       <div className="home-header">
         <div>
-          <span className="eyebrow">AT A GLANCE</span>
-          <h1>선택한 시험 결과</h1>
-          <p>기록된 점수와 응답 경험을 함께 확인하세요.</p>
+          <h1>시험 결과</h1>
         </div>
         <button className="primary" onClick={() => onNewTest()}>
           <Plus size={16} />새 시험
@@ -218,62 +215,44 @@ export function Home({
         <ScoreCard
           title="종합"
           kind="overview"
-          score={assessment.overall}
+          score={current.overall}
           onReport={() => onOpenReport(run.id, "overview")}
         />
         <ScoreCard
           title="지능"
           kind="intelligence"
-          score={assessment.intelligence}
+          score={current.intelligence}
           onReport={() => onOpenReport(run.id, "intelligence")}
         />
         <ScoreCard
           title="성능"
           kind="performance"
-          score={assessment.performance}
+          score={current.performance}
           onReport={() => onOpenReport(run.id, "performance")}
         />
       </div>
       <div className="home-policy-line">
         <span>
-          API 사용성 기준 · v3.1
+          단일 성능 + 동시 처리 가산 · v5
           <Help
             label="점수의 의미"
-            text="지능과 종합은 100점 만점, 성능은 기준 API가 1,000점이며 상한이 없습니다. 이전 v1·v2와 직접 비교하지 않습니다. 고정 성능 시험과 같은 측정 정의를 사용합니다. 완결된 코드 블록은 포함하며 형식 준수와 속도를 분리합니다. 미측정 범위는 통계적 신뢰구간이 아닙니다."
+            text="지능과 종합은 100점 만점, 성능은 기준 API가 1,000점이며 상한이 없습니다. 단일 요청의 Decode와 TTFT로 기본점수를 계산하고, 같은 표본에서 검증된 동시 처리 이득만 가산합니다. 단일 측정 이력은 동시작업으로 전환해도 유지합니다. 이전 점수 버전과 구분합니다."
           />
         </span>
         {isActive && <span className="home-progress-label">진행 중 결과</span>}
-        <span>같은 시험 조건끼리 비교</span>
+        <span>채점 {number(current.scored, 0)}/{number(current.selected, 0)} · {current.evaluatedDomains.length ? current.evaluatedDomains.join(" · ") : "평가 대기"}</span>
       </div>
       <div className="home-insight-grid">
         <article className="home-evidence">
           <div className="home-section-title">
             <h2>
               <Layers3 size={18} />
-              어디까지 확인했나요?
+              평가 분야
             </h2>
             <Help
               label="평가 범위 설명"
-              text="수학(GSM8K·MATH-500), 지식(MMLU-Pro), 지시 이행(IFEval), 코딩(HumanEval·MBPP·LiveCodeBench)을 고정 비중으로 계산합니다. 한 영역만 잘 나온 결과가 전체 지능으로 표시되지 않도록, 아직 없는 결과는 범위로 남깁니다."
+              text="수학(GSM8K·MATH-500), 지식(MMLU-Pro), 지시 이행(IFEval), 코딩(HumanEval·MBPP·LiveCodeBench)을 고정 비중으로 계산합니다. 상단은 현재 채점된 평가별 평균을 고정 비중으로 합산한 잠정 점수입니다. 아직 없는 영역은 완료 범위에만 남깁니다."
             />
-          </div>
-          <div className="home-measured-result">
-            <div>
-              <span>측정한 영역만</span>
-              <strong>
-                {assessment.intelligence.measuredOnly == null
-                  ? "—"
-                  : number(assessment.intelligence.measuredOnly)}
-                <small>점</small>
-              </strong>
-            </div>
-            <p>
-              채점된 부분의 설명용 수치
-              <Help
-                label="측정한 영역 점수 설명"
-                text="유효하게 채점한 부분의 가중 평균입니다. 전체 지능 점수가 아니며, 빠진 영역에 이 점수를 대신 넣지 않습니다. 상단 지능 카드의 범위와 평가 범위를 함께 읽으세요."
-              />
-            </p>
           </div>
           <div className="home-benchmark-list">
             {assessment.benchmarks.map((b) => (
@@ -305,7 +284,7 @@ export function Home({
           )}
           {missing.length > 0 && (
             <button className="home-fill-button" onClick={completeSetup}>
-              종합 시험으로 범위 채우기
+              종합 시험 설정
               <ArrowRight size={15} />
             </button>
           )}
@@ -314,11 +293,11 @@ export function Home({
           <div className="home-section-title">
             <h2>
               <Gauge size={18} />
-              답변을 기다리는 경험
+              응답 성능
             </h2>
             <Help
               label="응답 경험의 측정 범위"
-              text="영어·한국어·코드·JSON 각 3회의 중앙값을 먼저 구합니다. 아래 요약은 네 유형 중앙값의 중앙값이며, 점수는 각 유형의 기준 API 대비 비율로 계산합니다. 첫 답변까지의 네트워크·대기·추론과 이후 가시 출력 속도를 측정합니다."
+              text={`단일 요청 기록의 가시 Decode와 TTFT를 사용합니다. 기존 일반 문항의 c1 측정을 우선하고, 없으면 자동 선택의 c1 표본, 이전 단일 성능 표본 순서로 확인합니다. 동시 처리 가산은 같은 입력과 설정의 처리량·완료시간 개선을 검증한 경우에만 적용합니다. ${performance.bonusReason || ""}`}
             />
           </div>
           <div className="home-timing">
@@ -330,33 +309,22 @@ export function Home({
                   : number(performance.ttftMedian / 1000, 2)}
                 <small>초</small>
               </strong>
-              <p>네 유형 중앙값의 중앙값</p>
+              <p>유효 문제 풀이 기록의 중앙값</p>
             </div>
             <div>
-              <span>가시 출력 · Decode</span>
+              <span>단일 Decode</span>
               <strong>
-                {performance.decodeMedian == null
+                {performance.concurrentDecodeTps == null
                   ? "—"
-                  : number(performance.decodeMedian)}
+                  : number(performance.concurrentDecodeTps)}
                 <small>tok/s</small>
               </strong>
               <p>
-                {performance.concurrency === 1
-                  ? "단일 요청(c1)"
-                  : performance.concurrency
-                    ? `동시 요청 ${performance.concurrency}개`
-                    : "동시 요청 수 미기록"}
+                {`단일 유효 측정 ${number(performance.singleN || 0, 0)}건`}
               </p>
             </div>
           </div>
-          <div className="home-frontier-cases">
-            {assessment.experienceCases.map((c) => <div key={c.id}>
-              <strong>{{english:"영어", korean:"한국어", code:"코드", structured:"JSON"}[c.id]}</strong>
-              <span>{c.decode == null ? "—" : number(c.decode)} tok/s</span>
-              <span>{c.ttft == null ? "—" : number(c.ttft / 1000, 2)}초</span>
-              <small>{c.count}/3회</small>
-            </div>)}
-          </div>
+          <p className="home-reference-note">기본 {performance.singleScore == null ? "미측정" : `${number(performance.singleScore, 0)}점`} · 동시 처리 {performance.bonusState === "measured" ? `+${number(performance.concurrencyBonus || 0, 0)}점 (+${number(performance.concurrencyBonusPercent || 0)}%)` : performance.bonusState === "no_gain" ? "가산 없음" : performance.bonusState === "pending" ? "확인 중" : "미측정"}</p>
           <p className="home-reference-note">기준: {assessment.reference.model} · {assessment.reference.reasoning_effort} · {assessment.reference.measured_at ? time(assessment.reference.measured_at) : "측정 준비 중"}</p>
           <div className="home-usability"><strong>{assessment.usability.label}</strong><p>{assessment.usability.detail}</p></div>
           <div className="home-experience-summary">
@@ -364,7 +332,7 @@ export function Home({
             <p>
               {assessment.performance.state === "unavailable"
                 ? assessment.performance.reason
-                : `정상 응답 ${performance.pairedCount}건을 함께 측정했습니다. 이 점수는 기준 API와 비교한 실제 응답 경험을 설명합니다.`}
+                : `단일 유효 ${number(performance.pairedCount, 0)}건 · ${performance.throughputGain != null ? `동시 처리량 ${number(performance.throughputGain, 2)}배` : "동시 처리 효과 미확정"}`}
             </p>
           </div>
           <div className="home-next">
@@ -380,7 +348,7 @@ export function Home({
             </h3>
             <p>
               {assessment.intelligence.state === "partial"
-                ? `${missing.length}개 평가의 자료가 더 필요합니다. 현재 범위는 나머지 답안의 점수가 확인되면 좁아집니다.`
+                ? `${missing.length}개 평가의 자료가 더 필요합니다. 나머지 분야가 채점되면 점수가 갱신됩니다.`
                 : "점수의 근거와 실행 조건을 함께 읽으면 다음 시험을 고르기 쉽습니다."}
             </p>
             <button onClick={() => onOpenReport(run.id, "overview")}>
@@ -414,16 +382,17 @@ export function Home({
         <summary>API 기준 점수와 산식 확인</summary>
         <div>
           <p><b>지능:</b> 수학·지식·지시 이행·코딩에 각각 25%를 적용한 100점 만점입니다. 수학은 GSM8K/MATH-500을 절반씩, 코딩은 세 평가를 같은 비중으로 계산합니다.</p>
-          <p><b>미측정 범위:</b> 빠진 평가가 모두 오답일 때와 모두 정답일 때의 가능한 점수 범위입니다. 0점으로 확정하거나 다른 과목 점수로 대신하지 않습니다.</p>
-          <p><b>성능:</b> 네 유형마다 출력 속도/기준 속도와 기준 TTFT/측정 TTFT를 구합니다. 이 8개 비율을 같은 비중의 기하평균으로 합치고 1,000을 곱합니다. 기준 API와 같으면 1,000점이며 상한은 없습니다.</p>
-          <p><b>종합:</b> 100 × (지능 / 100)<sup>0.7</sup> × min(성능 / 1,000, 1)<sup>0.3</sup>. 100점 만점이며 지능이 범위이면 종합도 범위입니다. 비중은 제품 정책으로 정한 값입니다.</p>
+          <p><b>잠정 점수:</b> 현재 채점된 평가별 평균에 고정 비중을 적용하고, 확인된 비중 안에서 계산합니다. 빠진 영역을 대신 채우지 않으며 전체 평가가 완료되기 전까지 잠정입니다.</p>
+          {assessment.intelligence.state === "partial" && <p><b>가능한 최종 범위:</b> 지능 {number(assessment.intelligence.lower)}–{number(assessment.intelligence.upper)} / 100{assessment.overall.lower != null ? ` · 종합 ${number(assessment.overall.lower)}–${number(assessment.overall.upper)} / 100` : ""}. 남은 문항을 모두 틀리거나 맞았을 때의 범위이며 통계적 신뢰구간이 아닙니다.</p>}
+          <p><b>성능:</b> 단일 요청 기본점수는 1,000 × √((단일 Decode / 기준 Decode) × (기준 TTFT / 단일 TTFT))입니다. 기준은 저장된 Sol c1 응답의 {number(performance.baselineDecode)} tok/s · {number(performance.baselineTtft)} ms입니다. 동일 문항·설정에서 검증된 Throughput 이득 2배마다 기본점수의 10%, 최대 30%를 가산합니다. 처리량과 완료 시간이 모두 10% 이상 개선되고 문항별 채점 결과가 나빠지지 않은 경우에만 적용합니다. 동시 요청의 TTFT로 기본점수를 낮추지 않으며, 성능 점수에는 상한이 없습니다.</p>
+          <p><b>종합:</b> 100 × (지능 / 100)<sup>0.7</sup> × min(성능 / 1,000, 1)<sup>0.3</sup>. 100점 만점이며 진행 중에는 잠정 지능 점수로 계산합니다. 비중은 제품 정책으로 정한 값입니다.</p>
           <p><b>사용성:</b> 점수와 별도로 첫 반응과 생성 속도를 설명합니다. 답변의 정확성은 지능 평가로 확인합니다.</p>
           <p className="home-formula-id">정책 {assessment.policy} · 공식 점수·시장 순위가 아닌 자체 환산 지표</p>
           <h3>이 기록의 비교 조건</h3>
           <p>{assessment.comparison.complete ? "기록된 조건을 확인했습니다. 같은 조건의 결과끼리 비교하세요." : "확인되지 않은 조건이 있어 참고용으로 해석하세요."}</p>
           <ul>{assessment.comparison.details.map((detail, i) => <li key={i}>{detail}</li>)}</ul>
           <p className="home-comparison-key">조건 식별자: {assessment.comparison.key}</p>
-          <p>기준 모델·추론 강도·측정일·프로토콜을 버전으로 고정합니다. 서버 내부 성능 수치나 다른 품질팩의 속도를 이 기준에 섞지 않습니다.</p>
+          <p>기준 모델·추론 강도·측정일·집계 방식을 버전으로 고정합니다. 시험의 문항 구성과 동시 요청 수가 다르면 점수에도 영향을 줍니다.</p>
         </div>
       </details>
       <details className="home-formula home-legacy">

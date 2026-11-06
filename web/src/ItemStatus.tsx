@@ -31,8 +31,8 @@ export function correctness(items: Obj[]): Record<string, any> {
   const scored = (counts.correct || 0) + (counts.incorrect || 0) + (counts.partial || 0);
   return { ...counts, scored, rate: scored ? 100 * (counts.correct || 0) / scored : null };
 }
-export function ItemStatus({ items, current, page, onPage, onSelect }: {
-  items: Obj[]; current: number; page: number; onPage: (page: number) => void; onSelect: (index: number) => void;
+export function ItemStatus({ items, current, page, onPage, onSelect, following = false }: {
+  items: Obj[]; current: number; page: number; onPage: (page: number) => void; onSelect: (index: number) => void; following?: boolean;
 }) {
   const [expanded, setExpanded] = useState(() => {
     try { return localStorage.getItem("bench-item-status-expanded") !== "false"; }
@@ -40,6 +40,7 @@ export function ItemStatus({ items, current, page, onPage, onSelect }: {
   });
   const contentId = useId();
   const pages = Math.max(1, Math.ceil(items.length / 50));
+  const safePage = Number.isFinite(page) ? Math.max(0, Math.min(pages - 1, Math.floor(page))) : 0;
   const toggle = () => {
     const next = !expanded;
     setExpanded(next);
@@ -52,11 +53,11 @@ export function ItemStatus({ items, current, page, onPage, onSelect }: {
       <button type="button" className="item-status-toggle" aria-expanded={expanded} aria-controls={contentId} aria-label={`문항별 판정 ${expanded ? "접기" : "펼치기"}`} onClick={toggle}><span aria-hidden="true">{expanded ? "▾" : "▸"}</span>{expanded ? "접기" : "펼치기"}</button>
     </div>
     <div id={contentId} className="item-status-content">{expanded && <>
-    <div className="item-status-toolbar"><span>문항을 누르면 답변과 판정 근거를 확인합니다</span>
-      {pages > 1 && <div className="item-controls"><button type="button" disabled={!page} aria-label="이전 판정 목록" onClick={() => onPage(page - 1)}>‹</button><span>{page + 1} / {pages}</span><button type="button" disabled={page + 1 >= pages} aria-label="다음 판정 목록" onClick={() => onPage(page + 1)}>›</button></div>}
+    <div className="item-status-toolbar"><span>{following ? "현재 문항과 페이지를 따라갑니다" : "문항을 눌러 답변과 판정 근거를 확인하세요"}</span>
+      {pages > 1 && <div className="item-controls"><button type="button" disabled={!safePage} aria-label="이전 판정 목록" onClick={() => onPage(safePage - 1)}>‹</button><span>{safePage + 1} / {pages}</span><button type="button" disabled={safePage + 1 >= pages} aria-label="다음 판정 목록" onClick={() => onPage(safePage + 1)}>›</button></div>}
     </div>
-    <div className="item-status-grid">{items.slice(page * 50, page * 50 + 50).map((item, i) => {
-      const index = page * 50 + i, state = judgment(item);
+    <div className="item-status-grid">{items.slice(safePage * 50, safePage * 50 + 50).map((item, i) => {
+      const index = safePage * 50 + i, state = judgment(item);
       return <button key={item.task.id} className={`question-state ${state.key} ${index === current ? "selected" : ""}`} aria-label={`${index + 1}번 문항 · ${state.label}`} aria-current={index === current ? "true" : undefined} title={`${item.task.id} · ${state.label}`} onClick={() => onSelect(index)}><span>{index + 1}</span><b>{state.symbol}</b></button>;
     })}</div>
     <div className="item-state-legend"><span>✓ 정답·측정 완료</span><span>× 오답</span><span>◐ 부분 점수</span><span>… 생성·채점 중</span><span>! 요청·채점 실패</span><span>· 미시작</span></div>

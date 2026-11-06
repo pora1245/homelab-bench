@@ -648,6 +648,7 @@ mod device_auth_tests {
         tokio::fs::create_dir(&dir).await.unwrap();
         let app = App {
             data_dir: dir.to_string_lossy().into(),
+            preflights: Default::default(),
             db: sqlx::sqlite::SqlitePoolOptions::new()
                 .max_connections(1)
                 .connect("sqlite::memory:")
@@ -657,7 +658,7 @@ mod device_auth_tests {
             packs: Arc::new(Mutex::new(BTreeMap::new())),
             keys: Arc::new(Mutex::new(BTreeMap::new())),
             judge_keys: Arc::new(Mutex::new(BTreeMap::new())),
-            active: Arc::new(Mutex::new(None)),
+            active: Default::default(),
             events: broadcast::channel(8).0,
             settings_lock: Arc::new(Mutex::new(())),
             dirty: Arc::new(Mutex::new(BTreeMap::new())),

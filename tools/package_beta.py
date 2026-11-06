@@ -251,10 +251,13 @@ def smoke(zip_path, report_path):
                         assert pack['count']==expected[pack['id']]['count']
                         assert sum(pack['quick_subjects'].values())==expected[pack['id']]['quick']
                 combined=next(p for p in packs if p['id']=='collection-full-v1')
-                assert combined['count']==sum(v['count'] for v in expected.values())
-                assert sum(combined['quick_subjects'].values())==combined['sources']['quick_count']==sum(v['quick'] for v in expected.values())
-                assert {c['id'] for c in combined['sources']['components']}==set(expected)
+                quality={key:value for key,value in expected.items() if key!='api-experience-v1'}
+                assert combined['count']==sum(v['count'] for v in quality.values())
+                assert sum(combined['quick_subjects'].values())==combined['sources']['quick_count']==sum(v['quick'] for v in quality.values())
+                assert {c['id'] for c in combined['sources']['components']}==set(quality)
                 assert not set(combined['sources']['missing_components']) & set(expected)
+                assert 'api-experience-v1' not in combined['sources']['missing_components']
+                assert not any(task_id.startswith('experience:') for task_id in combined['sources']['quick_ids'])
                 assert combined['sources']['complete_collection']==(not combined['sources']['missing_components'])
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/',timeout=3) as r: html=r.read().decode();assert '<div id="root"></div>' in html
                 readiness=json_get(f'http://127.0.0.1:{port}/api/readiness')

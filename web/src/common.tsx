@@ -61,11 +61,11 @@ export function runStatus(run?: Obj | null) {
 export const tips: Obj = {
   TTFT: "Time To First Token. 벤치 실행기가 모델 API에 요청한 시점부터 실제 답변의 첫 텍스트를 받은 시점까지입니다. 추론·네트워크·대기를 포함하고 브라우저 표시 지연은 제외합니다. 과거 기록은 당시 정의를 유지합니다.",
   Decode:
-    "첫 출력 이후 토큰 생성 속도입니다. 서버 제공값을 우선합니다. 스트리밍 추정값은 벤치 실행기의 API 수신 시각으로 계산하며 브라우저 표시 속도가 아닙니다. 단위는 tok/s입니다.",
+    "요청 하나의 첫 출력 이후 토큰 생성 속도입니다. 여러 요청의 합계가 아니며 카드에는 요청별 측정값의 중앙값을 표시합니다. 서버 제공값을 우선합니다. 스트리밍 추정값은 벤치 실행기의 API 수신 시각으로 계산하며 브라우저 표시 속도가 아닙니다. 단위는 tok/s입니다.",
   Prefill:
     "입력 토큰을 처리하는 속도입니다. 서버가 별도로 제공한 측정값만 표시합니다. TTFT에는 대기와 통신도 포함되므로 Prefill로 대신 계산하지 않습니다.",
   Throughput:
-    "동시에 처리한 요청들의 출력 토큰을 전체 요청 구간으로 나눈 처리량입니다. 대기·Prefill을 포함하므로 개별 요청의 Decode와 다릅니다.",
+    "현재 동시 요청 구간의 전체 출력 토큰(추론 포함)을 첫 요청 시작부터 마지막 응답 완료까지의 시간으로 나눈 처리량입니다. Prefill·요청 사이 채점·대기·일시정지를 포함합니다. 전체 토큰 미제공 응답은 제외하며 가시 토큰으로 대신하지 않습니다.",
   VRAM: "GPU의 전용 메모리 사용량입니다. 선택한 시험 장비에서 실제 수집한 값이며 연결되지 않으면 —로 표시합니다.",
   score:
     "점수는 채점된 문항만 분모로 사용합니다. 요청 오류·미채점·출력 잘림 수를 함께 확인해야 합니다. 빠른 시험의 점수는 전체 평가 점수를 대신하지 않습니다.",
@@ -188,17 +188,19 @@ export function Metric({
   value,
   unit,
   note,
+  help,
 }: {
   label: string;
   value: any;
   unit?: string;
   note?: string;
+  help?: string;
 }) {
   return (
     <div className="metric">
       <div className="metric-label">
         {label}
-        <Help text={tips[label] || tips.score} label={label + " 도움말"} />
+        <Help text={help || tips[label] || tips.score} label={label + " 도움말"} />
       </div>
       <div className="metric-value">
         {typeof value === "number" ? number(value) : value || "—"}

@@ -1,4 +1,7 @@
 mod provider;
+mod auto_concurrency;
+mod metrics_quality;
+mod preflight;
 mod report;
 mod runtime;
 mod scoring;
@@ -23,19 +26,24 @@ use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::{Mutex, broadcast};
 use types::*;
 
 #[derive(Clone)]
 pub struct App {
     pub data_dir: String,
+    pub preflights: Arc<Mutex<BTreeMap<String, preflight::Ticket>>>,
     pub db: SqlitePool,
     pub runs: Arc<Mutex<BTreeMap<String, Run>>>,
     pub packs: Arc<Mutex<BTreeMap<String, Pack>>>,
     pub keys: Arc<Mutex<BTreeMap<String, String>>>,
     pub judge_keys: Arc<Mutex<BTreeMap<String, String>>>,
-    pub active: Arc<Mutex<Option<String>>>,
+    pub active: Arc<Mutex<BTreeSet<String>>>,
     pub events: broadcast::Sender<String>,
     pub settings_lock: Arc<Mutex<()>>,
     pub dirty: Arc<Mutex<BTreeMap<String, std::collections::BTreeSet<usize>>>>,
@@ -186,6 +194,9 @@ async fn main() -> anyhow::Result<()> {
         let p: Pack = serde_json::from_str(&body)?;
         packs.insert(p.id.clone(), p);
     }
+    // New quality exams collect timing from their own responses. Keep the
+    // legacy experience pack available for records/API compatibility, but do
+    // not append its fixed requests to quick or full quality selections.
     let components = [
         "gsm8k-test-v1",
         "math500-test-v1",
@@ -194,7 +205,6 @@ async fn main() -> anyhow::Result<()> {
         "humaneval-full-v1",
         "mbpp-test-v1",
         "livecodebench-v6-v1",
-        "api-experience-v1",
         "bbh-cot-full-v1",
     ];
     let installed = components
@@ -228,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
                 "설치된 평가팩 종합"
             }
             .into(),
-            version: "2026-11-06.4".into(),
+            version: "2026-11-07.1".into(),
             sources: json!({"benchmark":"전체 분야 종합","split":"설치된 평가팩의 전체 평가 구간","source_count":count,"installed_count":count,"quick_count":quick.len(),"quick_ids":quick,"components":source,"missing_components":missing,"complete_collection":missing.is_empty(),"license":"구성 평가팩별 조건","redistribution":"local_collection","selection":"전체: 설치된 원본 평가 구간 전체 / 빠른: 각 팩의 고정 문항 ID"}),
             tasks,
         };
@@ -237,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
     let (events, _) = broadcast::channel(128);
     let app = App {
         data_dir: data,
+        preflights: Default::default(),
         db,
         runs: Arc::new(Mutex::new(runs)),
         packs: Arc::new(Mutex::new(packs)),
@@ -255,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
             get(|| async { Json(json!({"ok":true,"version":"0.1.0"})) }),
         )
         .route("/api/readiness", get(settings::readiness))
+        .route("/api/preflight", post(preflight::check))
         .route("/api/setup", get(setup::read).post(setup::write))
         .route("/api/packs", get(packs_list).post(pack_import))
         .route("/api/runs", get(runs_list).post(start_run))
@@ -411,10 +423,10 @@ async fn runs_list(State(s): State<App>) -> Json<Value> {
     let runs = s.runs.lock().await;
     let mut v = runs.values().collect::<Vec<_>>();
     v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    Json(json!(v.into_iter().map(|r|json!({"id":r.id,"name":r.config.name,"model":r.config.model,"created_at":r.created_at,"status":r.status,"provenance":r.provenance,"summary":r.summary(),"busy":run_busy(r,active.as_deref())})).collect::<Vec<_>>()))
+    Json(json!(v.into_iter().map(|r|json!({"id":r.id,"name":r.config.name,"model":r.config.model,"created_at":r.created_at,"status":r.status,"provenance":r.provenance,"summary":r.summary(),"busy":run_busy(r,&active)})).collect::<Vec<_>>()))
 }
-fn run_busy(r: &Run, active: Option<&str>) -> bool {
-    active == Some(r.id.as_str())
+fn run_busy(r: &Run, active: &BTreeSet<String>) -> bool {
+    active.contains(&r.id)
         || ["running", "pausing", "cancelling", "scoring"].contains(&r.status.as_str())
 }
 async fn trash_list(State(s): State<App>) -> ApiResult<Json<Value>> {
@@ -431,7 +443,7 @@ async fn run_delete(State(s): State<App>, Path(id): Path<String>) -> ApiResult<J
         }
         return Err(bad("삭제할 시험 기록이 없습니다"));
     };
-    if run_busy(r, active.as_deref()) {
+    if run_busy(r, &active) {
         return Err((
             StatusCode::CONFLICT,
             Json(
@@ -484,13 +496,15 @@ async fn item_get(
         v["task"]["answer"] = Value::Null;
         v["task"]["meta"] = Value::Null;
     }
-    for a in v["attempts"].as_array_mut().unwrap() {
+    for (n, a) in v["attempts"].as_array_mut().unwrap().iter_mut().enumerate() {
+        a["metric_quality"] = metrics_quality::evaluate(&item.attempts[n].metrics);
         a["raw"] = Value::Null;
     }
     Ok(Json(v))
 }
 async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResult<Json<Value>> {
     settings::resolve(&s, &mut body).await.map_err(bad)?;
+    preflight::validate(&s, &body).await.map_err(bad)?;
     let mut c = body.config;
     if c.pack_id == "korean-core-v1" {
         return Err(bad(
@@ -526,10 +540,6 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
     }
     if !["quick", "standard", "full"].contains(&c.profile.as_str()) {
         return Err(bad("시험 프로필 오류"));
-    }
-    let mut active = s.active.lock().await;
-    if active.is_some() {
-        return Err(bad("진행 중인 시험을 마친 후 시작하세요"));
     }
     let packs = s.packs.lock().await;
     let p = packs
@@ -570,7 +580,11 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
     scoring::ensure_ready(&tasks, &c)
         .await
         .map_err(|v| (StatusCode::BAD_REQUEST, Json(v)))?;
+    // Admission is per run; other runs continue while readiness is checked.
+    let mut active = s.active.lock().await;
     let id = uuid::Uuid::new_v4().to_string();
+    let initial_concurrency = Some(c.concurrency);
+    let concurrency_tuning = c.auto_concurrency.then(|| auto_concurrency::Tuning::new(&c, &tasks));
     let run = Run {
         id: id.clone(),
         created_at: now(),
@@ -591,12 +605,15 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
         telemetry: vec![],
         active_ms: 0.0,
         error: None,
+        execution_segments: vec![],
+        initial_concurrency,
+        concurrency_tuning,
     };
     s.save(&run).await.map_err(bad)?;
     s.runs.lock().await.insert(id.clone(), run);
     s.keys.lock().await.insert(id.clone(), body.api_key);
     s.judge_keys.lock().await.insert(id.clone(), body.judge_key);
-    *active = Some(id.clone());
+    active.insert(id.clone());
     drop(active);
     runtime::launch(s, id.clone());
     Ok(Json(json!({"id":id})))
@@ -634,8 +651,58 @@ async fn control(
     let mut active = s.active.lock().await;
     let mut runs = s.runs.lock().await;
     let r = runs.get_mut(&id).ok_or_else(|| bad("실행 없음"))?;
+    if action == "auto-concurrency" {
+        if active.contains(&id) || r.status != "paused" {
+            return Err(bad("현재 문항이 끝나도록 일시정지한 뒤 자동 동시 요청을 설정하세요."));
+        }
+        let enabled = body["enabled"].as_bool().ok_or_else(|| bad("enabled를 지정하세요."))?;
+        let old = r.clone();
+        if enabled {
+            let max = body["max_concurrency"].as_u64().filter(|n| (1..=8).contains(n))
+                .ok_or_else(|| bad("최대 동시 요청 수는 1~8입니다."))? as usize;
+            if r.concurrency_tuning.as_ref().is_some_and(|t| t.finished()) && body["remeasure"] != true {
+                return Err(bad("측정 결과가 이미 있습니다. 다시 측정하려면 remeasure: true를 지정하세요."));
+            }
+            if r.concurrency_tuning.as_ref().is_some_and(|t| !t.finished() && t.max_concurrency != max) && body["remeasure"] != true {
+                return Err(bad("진행 중인 측정의 상한을 바꾸려면 remeasure: true를 지정하세요."));
+            }
+            r.initial_concurrency.get_or_insert(r.config.concurrency);
+            r.config.auto_concurrency = true;
+            if r.concurrency_tuning.is_none() || body["remeasure"] == true {
+                let mut config = r.config.clone(); config.concurrency = max;
+                let mut next = auto_concurrency::Tuning::for_existing(&config, &r.items);
+                if let Some(previous) = r.concurrency_tuning.take() { next.previous_measurements.push(previous); }
+                r.concurrency_tuning = Some(next);
+            }
+        } else { r.config.auto_concurrency = false; }
+        if let Err(e) = storage::save(&s, r, false).await { *r = old; return Err(bad(e)); }
+        let _ = s.events.send(id.clone());
+        return Ok(Json(json!({"ok":true,"auto_concurrency":r.config.auto_concurrency,"concurrency_tuning":r.concurrency_tuning.as_ref().map(|t| t.public(false,true))})));
+    }
+    if action == "concurrency" {
+        if active.contains(&id) || r.status != "paused" {
+            return Err(bad("현재 문항이 끝나도록 일시정지한 뒤 동시 요청 수를 변경하세요."));
+        }
+        let n = body["concurrency"].as_u64().filter(|n| (1..=8).contains(n))
+            .ok_or_else(|| bad("동시 요청 수는 1~8입니다."))? as usize;
+        if n != r.config.concurrency || r.config.auto_concurrency {
+            let old = r.clone();
+            r.initial_concurrency.get_or_insert(r.config.concurrency);
+            r.config.auto_concurrency = false;
+            if r.execution_segments.is_empty() {
+                r.execution_segments.push(json!({"started_at":r.created_at,"concurrency":r.config.concurrency,"completed_before":0,"reason":"initial"}));
+            }
+            let completed = r.items.iter().filter(|i| ["done","error"].contains(&i.status.as_str())).count();
+            r.execution_segments.push(json!({"started_at":now(),"concurrency":n,"completed_before":completed,"reason":"user_change"}));
+            r.config.concurrency = n;
+            // A settings-only change must not reserialize existing answer or
+            // metric rows (including their original floating-point text).
+            if let Err(error) = storage::save(&s, r, false).await { *r=old; return Err(bad(error)); }
+        }
+        return Ok(Json(json!({"ok":true,"concurrency":r.config.concurrency,"execution_segments":r.execution_segments})));
+    }
     if action == "rescore"
-        && active.is_none()
+        && !active.contains(&id)
         && !["running", "pausing", "cancelling", "scoring"].contains(&r.status.as_str())
     {
         if let Some(key) = body["judge_key"].as_str() {
@@ -646,12 +713,12 @@ async fn control(
             .map_err(bad)?;
         let previous = r.status.clone();
         r.status = "scoring".into();
-        if let Err(error) = s.save(r).await {
+        if let Err(error) = storage::save(&s, r, false).await {
             r.status = previous;
             return Err(bad(error));
         }
         // The worker is launched only after the durable transition succeeds.
-        *active = Some(id.clone());
+        active.insert(id.clone());
         drop(runs);
         drop(active);
         runtime::rescore(s, id, previous);
@@ -664,7 +731,7 @@ async fn control(
             r.status = "cancelling".into()
         }
         "resume" | "retry"
-            if active.is_none()
+            if !active.contains(&id)
                 && !["running", "pausing", "cancelling"].contains(&r.status.as_str()) =>
         {
             if let Some(key) = body["api_key"].as_str() {
@@ -683,9 +750,12 @@ async fn control(
             }
             let previous_items = r.items.iter().map(|i| i.status.clone()).collect::<Vec<_>>();
             let previous_error = r.error.clone();
-            for i in &mut r.items {
+            let previous_dirty = s.dirty.lock().await.get(&id).cloned();
+            let mut changed = Vec::new();
+            for (index, i) in r.items.iter_mut().enumerate() {
                 if action == "retry" && i.status == "error" {
-                    i.status = "pending".into()
+                    i.status = "pending".into();
+                    changed.push(index);
                 }
             }
             if !r
@@ -697,15 +767,19 @@ async fn control(
             }
             r.status = "running".into();
             r.error = None;
-            if let Err(error) = s.save(r).await {
+            if !changed.is_empty() { s.dirty.lock().await.entry(id.clone()).or_default().extend(changed); }
+            if let Err(error) = storage::save(&s, r, false).await {
                 r.status = previous_status;
                 r.error = previous_error;
                 for (item, status) in r.items.iter_mut().zip(previous_items) {
                     item.status = status;
                 }
+                let mut dirty = s.dirty.lock().await;
+                if let Some(previous_dirty) = previous_dirty { dirty.insert(id.clone(), previous_dirty); }
+                else { dirty.remove(&id); }
                 return Err(bad(error));
             }
-            *active = Some(id.clone());
+            active.insert(id.clone());
             drop(runs);
             drop(active);
             runtime::launch(s, id.clone());
@@ -713,7 +787,7 @@ async fn control(
         }
         _ => return Err(bad("현재 상태에서는 실행할 수 없습니다")),
     }
-    if let Err(error) = s.save(r).await {
+    if let Err(error) = storage::save(&s, r, false).await {
         r.status = previous_status;
         return Err(bad(error));
     }
@@ -889,12 +963,13 @@ mod performance_upgrade_tests {
         let (events, _) = broadcast::channel(32);
         let s = App {
             data_dir: "/nonexistent-no-credentials-required".into(),
+            preflights: Default::default(),
             db,
             runs: Arc::new(Mutex::new(BTreeMap::new())),
             packs: Arc::new(Mutex::new(BTreeMap::new())),
             keys: Arc::new(Mutex::new(BTreeMap::new())),
             judge_keys: Arc::new(Mutex::new(BTreeMap::new())),
-            active: Arc::new(Mutex::new(None)),
+            active: Default::default(),
             events,
             settings_lock: Arc::new(Mutex::new(())),
             dirty: Arc::new(Mutex::new(BTreeMap::new())),

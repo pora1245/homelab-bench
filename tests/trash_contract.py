@@ -21,6 +21,7 @@ import urllib.request
 ROOT=Path(__file__).resolve().parents[1]
 checks=[]
 requests=[]
+preflight_requests=[]
 release=threading.Event()
 started=threading.Event()
 
@@ -31,8 +32,10 @@ def check(value,label):
 class Fixture(http.server.BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def do_POST(self):
-        requests.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
-        started.set();release.wait(12)
+        body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        probe=body['messages'][0]['content'].startswith('Write a plain, factual paragraph')
+        (preflight_requests if probe else requests).append(body)
+        if not probe: started.set();release.wait(12)
         try:
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.end_headers()
             v={'choices':[{'delta':{'content':'answer'},'finish_reason':'stop'}],'usage':{'prompt_tokens':4,'completion_tokens':1}}
@@ -52,6 +55,10 @@ def main():
         except urllib.error.HTTPError as e:return e.code,json.load(e)
     def api(path,body=None):
         code,value=raw(path,body);assert code==200,(path,code,value);return value
+    def start_run(body):
+        probe=api('preflight',body)
+        check(probe['status'] in ('ready','limited'),'streaming preflight completes before new run')
+        return api('runs',{**body,'preflight_token':probe['preflight_token'],'allow_limited_metrics':True})
     def wait(predicate,timeout=15):
         until=time.monotonic()+timeout
         while time.monotonic()<until:
@@ -115,7 +122,7 @@ def main():
             p.terminate();p.wait(5);p=boot()
             check(api('export/'+rid)==before,'restored history survives another restart')
             pack={'id':'trash-fixture','name':'Fixture','version':'1','sources':{},'tasks':[task,{**task,'id':'second'}]};api('packs',pack)
-            started.clear();release.clear();live=api('runs',{'config':config})['id'];check(started.wait(5),'loopback fixture has an active generation')
+            started.clear();release.clear();live=start_run({'config':config})['id'];check(started.wait(5),'loopback fixture has an active generation')
             live_entry=next(r for r in api('runs') if r['id']==live)
             code,denied=raw(f'runs/{live}/delete',{})
             check(live_entry['busy'] and code==409 and denied['code']=='run_active','active generation deletion is rejected with busy flag')
@@ -142,7 +149,7 @@ def main():
         finally:
             release.set();p.terminate();p.wait(5);log.close();fixture.shutdown()
     result={'passed':len(checks),'checks':checks,'scope':'temporary SQLite and loopback HTTP fixture only; production records untouched'}
-    dest=ROOT/'evidence/usability-2026-11-06/trash-contract.json';dest.parent.mkdir(parents=True,exist_ok=True);dest.write_text(json.dumps(result,ensure_ascii=False,indent=2))
+    dest=Path(os.environ.get('BENCH_TEST_REPORT','/tmp/llm-bench-trash-contract.json'));dest.parent.mkdir(parents=True,exist_ok=True);dest.write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps(result,ensure_ascii=False,indent=2))
 
 if __name__=='__main__':main()

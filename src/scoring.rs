@@ -2,16 +2,16 @@ use crate::types::{Config, Run, Score, Task};
 use regex::Regex;
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     process::Stdio,
     sync::{Mutex, OnceLock},
     time::Duration,
 };
 use tokio::{io::AsyncWriteExt, process::Command};
 
-fn containers() -> &'static Mutex<BTreeSet<String>> {
-    static ACTIVE: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
-    ACTIVE.get_or_init(|| Mutex::new(BTreeSet::new()))
+fn containers() -> &'static Mutex<BTreeMap<String, String>> {
+    static ACTIVE: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 async fn remove_container(name: &str) {
     // Retry after an aborted docker client to cover creation/kill races.
@@ -40,13 +40,19 @@ impl Drop for ContainerGuard {
         });
     }
 }
-pub async fn cleanup_active() {
-    let names: Vec<_> = containers().lock().unwrap().iter().cloned().collect();
+pub async fn cleanup_run(run_id: &str) {
+    let names: Vec<_> = containers()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, owner)| owner.as_str() == run_id)
+        .map(|(name, _)| name.clone())
+        .collect();
     for name in names {
         remove_container(&name).await;
     }
 }
-async fn bridge(request: Value, timeout: u64) -> anyhow::Result<Value> {
+async fn bridge(request: Value, timeout: u64, run_id: Option<&str>) -> anyhow::Result<Value> {
     let code = |s: &str| ["humaneval", "mbpp", "livecodebench"].contains(&s);
     let needs_container = request["task"]["scorer"].as_str().is_some_and(code)
         || request["scorers"]
@@ -55,7 +61,10 @@ async fn bridge(request: Value, timeout: u64) -> anyhow::Result<Value> {
     let name = format!("llm-bench-{}", uuid::Uuid::new_v4().simple());
     let guard = if needs_container {
         if request["action"] != "readiness" {
-            containers().lock().unwrap().insert(name.clone());
+            containers()
+                .lock()
+                .unwrap()
+                .insert(name.clone(), run_id.unwrap_or_default().to_owned());
         }
         Some(ContainerGuard(name.clone(), true))
     } else {
@@ -94,7 +103,7 @@ async fn bridge(request: Value, timeout: u64) -> anyhow::Result<Value> {
         .await
         .map_err(|_| anyhow::anyhow!("채점 환경 응답 제한시간 초과; 점수 미산출"))?;
     // Python's finally already removes normal containers. On cancellation Drop
-    // owns cleanup; runtime waits for cleanup_active before confirming cancel.
+    // owns cleanup; runtime waits for this run's containers before confirming cancel.
     if let Some(mut guard) = guard {
         if result.is_ok() {
             containers().lock().unwrap().remove(&name);
@@ -122,7 +131,13 @@ pub async fn readiness(scorers: &[String], config: Option<&Config>) -> Value {
         );
     }
     if !bridge_names.is_empty() {
-        match bridge(json!({"action":"readiness","scorers":bridge_names}), 35).await {
+        match bridge(
+            json!({"action":"readiness","scorers":bridge_names}),
+            35,
+            None,
+        )
+        .await
+        {
             Ok(v) if v["scorers"].is_object() => {
                 states.extend(v["scorers"].as_object().unwrap().clone())
             }
@@ -433,7 +448,14 @@ fn bbh_score(task: &Task, output: &str) -> Score {
     score
 }
 
+#[cfg(test)]
 pub async fn score(task: &Task, output: &str) -> Score {
+    score_scoped(task, output, None).await
+}
+pub async fn score_for_run(task: &Task, output: &str, run_id: &str) -> Score {
+    score_scoped(task, output, Some(run_id)).await
+}
+async fn score_scoped(task: &Task, output: &str, run_id: Option<&str>) -> Score {
     match task.scorer.as_str() {
         "experience" => experience_score(task, output),
         "bbh" => bbh_score(task, output),
@@ -503,7 +525,7 @@ pub async fn score(task: &Task, output: &str) -> Score {
             } else {
                 45
             };
-            match bridge(json!({"task":task,"output":output}), timeout)
+            match bridge(json!({"task":task,"output":output}), timeout, run_id)
                 .await
                 .and_then(|v| Ok(serde_json::from_value::<Score>(v)?))
             {

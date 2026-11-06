@@ -195,6 +195,24 @@ pub fn html(r: &Run) -> String {
     };
     items.push_str(&format!("<section><p>TTFT 중앙값 {} ms · 디코딩 중앙값 {} tok/s · 프리필 중앙값 {} tok/s</p><p>디코딩 계측 출처 {} · 출력 처리량 {} tok/s(프리필·대기 포함)</p><p>출력 한도 {} · 추론 설정 {} · 채점 미완료 {}</p><p>표본 해시 {}</p><p>출처 {} · {}</p></section>",fmt(&s["ttft_ms"]["median"]),fmt(&s["decode_tps"]["median"]),fmt(&s["prefill_tps"]["median"]),esc(&s["decode_sources"].to_string()),fmt(&s["output_throughput_tps"]),r.config.max_tokens,esc(&r.config.reasoning_effort),s["score_errors"],esc(&r.suite_hash),esc(&r.provenance),esc(&r.config.note)));
     items.push_str(&format!("<section><p>가시 출력 속도 중앙값 {} tok/s · 예열 {}건은 성능 집계에서 제외</p><p>성능 측정 완료 {} · 출력 점검 실패 {} · 품질 평가 문항 {}</p><p class=\"muted\">API 기준 성능점수와 종합 보고서는 앱의 보고서 화면에서 확인하세요.</p></section>",fmt(&s["client_visible_decode_tps"]["median"]),s["warmup_total"],s["measured"],s["measurement_errors"],s["quality_total"]));
+    items.push_str("<details><summary>계측 수집·제외 내역</summary><table><thead><tr><th>지표</th><th>유효</th><th>제외</th><th>미수집</th><th>제외 사유</th></tr></thead><tbody>");
+    for (key, label) in [
+        ("ttft_ms", "TTFT"),
+        ("decode_tps", "Decode"),
+        ("client_visible_decode_tps", "가시 출력 Decode"),
+        ("prefill_tps", "Prefill"),
+        ("throughput", "Throughput"),
+    ] {
+        let v = &s["metric_quality"]["metrics"][key];
+        items.push_str(&format!(
+            "<tr><td>{label}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            v["valid"],
+            v["excluded"],
+            v["missing"],
+            esc(&v["reasons"].to_string())
+        ));
+    }
+    items.push_str("</tbody></table><p>metric-integrity-v1 · 계측 오류만 집계에서 제외하며 원본과 실제 지연은 보존합니다. 100ms 미만의 가시 출력 구간은 전송 버퍼와 디코딩을 구분할 수 없어 클라이언트 속도 추정에서 제외합니다.</p></details>");
     for i in &r.items {
         if let Some(a) = i.attempts.last() {
             items.push_str(&format!("<details><summary>{} · {} · {}</summary><h4>문제</h4><pre>{}</pre><h4>답변</h4><pre>{}</pre><h4>채점 근거</h4><pre>{}</pre></details>",esc(&i.task.subject),esc(&i.task.id),esc(&item_label(i)),esc(&i.task.prompt),esc(&a.output),esc(&a.score.as_ref().map(|s|s.detail.clone()).unwrap_or_else(||"미채점".into()))));

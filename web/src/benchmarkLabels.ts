@@ -77,7 +77,7 @@ export function benchmarkLabel(value: string | Data): string {
 
 export function benchmarkHelp(value: string | Data): string {
   const key = benchmarkKey(value);
-  if (key === "collection") return "설치된 평가팩을 함께 실행합니다. 기존 7종의 지능 가중치는 고정하며, BIG-Bench Hard는 별도 확장 정확도로 표시합니다. 성능팩은 응답 사용성을 측정합니다.";
+  if (key === "collection") return "설치된 평가팩을 함께 실행합니다. 기존 7종의 지능 가중치는 고정하며, BIG-Bench Hard는 별도 확장 정확도로 표시합니다. 문제를 푸는 동안 응답 시간과 생성 속도도 함께 측정합니다.";
   if (key === "legacy") return "기존 실행을 보존하기 위한 표본 평가팩입니다. 당시의 문항·채점 결과를 유지합니다.";
   return benchmarks[key]?.help || "평가팩에 기록된 출처·문항 범위·채점 방법을 확인하세요.";
 }

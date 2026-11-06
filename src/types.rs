@@ -49,6 +49,7 @@ fn optional_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Erro
 pub fn default_api_format() -> String {
     "chat_completions".into()
 }
+fn is_false(v: &bool) -> bool { !*v }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -64,6 +65,8 @@ pub struct Config {
     pub temperature: f64,
     pub max_tokens: u32,
     pub concurrency: usize,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub auto_concurrency: bool,
     pub timeout_s: u64,
     #[serde(default)]
     pub reasoning_effort: String,
@@ -109,6 +112,10 @@ pub struct Start {
     pub judge_connection_id: String,
     #[serde(default, deserialize_with = "explicit_device_id")]
     pub device_id: Option<String>,
+    #[serde(default)]
+    pub preflight_token: String,
+    #[serde(default)]
+    pub allow_limited_metrics: bool,
 }
 
 fn explicit_device_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
@@ -117,6 +124,22 @@ fn explicit_device_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<S
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Metrics {
+    #[serde(default)]
+    pub request_concurrency: Option<usize>,
+    #[serde(default)]
+    pub visible_decode_span_ms: Option<f64>,
+    #[serde(default)]
+    pub visible_stream_chunks: Option<usize>,
+    #[serde(default)]
+    pub server_decode_ms: Option<f64>,
+    #[serde(default)]
+    pub server_decode_tokens: Option<u64>,
+    #[serde(default)]
+    pub server_prefill_ms: Option<f64>,
+    #[serde(default)]
+    pub server_prefill_tokens: Option<u64>,
+    #[serde(default)]
+    pub grading_ms: Option<f64>,
     #[serde(default)]
     pub measurement_version: String,
     #[serde(default)]
@@ -249,8 +272,32 @@ pub struct Run {
     pub telemetry: Vec<Value>,
     pub active_ms: f64,
     pub error: Option<String>,
+    #[serde(default)]
+    pub execution_segments: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_concurrency: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrency_tuning: Option<crate::auto_concurrency::Tuning>,
 }
 impl Run {
+    pub fn request_concurrency(&self, a: &Attempt) -> usize {
+        if let Some(n) = a.metrics.request_concurrency {
+            return n;
+        }
+        let started = chrono::DateTime::parse_from_rfc3339(&a.started_at).ok();
+        self.execution_segments
+            .iter()
+            .rev()
+            .find_map(|segment| {
+                let at = segment["started_at"]
+                    .as_str()
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())?;
+                (started.is_some_and(|s| s >= at))
+                    .then(|| segment["concurrency"].as_u64().map(|n| n as usize))
+                    .flatten()
+            })
+            .unwrap_or(self.initial_concurrency.unwrap_or(self.config.concurrency))
+    }
     pub fn compact(&self) -> Value {
         let items=self.items.iter().map(|i|serde_json::json!({
             "task":{"id":i.task.id,"subject":i.task.subject,"scorer":i.task.scorer,"max_tokens":i.task.max_tokens,"prompt":"","answer":null,"meta":{
@@ -258,9 +305,9 @@ impl Run {
                 "prompt_sha256":i.task.meta["prompt_sha256"],
                 "experience_case":i.task.meta["experience_case"],
                 "warmup":i.task.meta["warmup"]}},
-            "status":i.status,"verdict":i.verdict(),"attempts":i.attempts.iter().map(|a|serde_json::json!({"started_at":a.started_at,"ended_at":a.ended_at,"output":"","reasoning":"","finish_reason":a.finish_reason,"error":a.error,"metrics":a.metrics,"score":a.score.as_ref().map(|s|serde_json::json!({"value":s.value,"state":s.state,"detail":s.detail,"scorer_version":s.scorer_version,"extra":{"valid_output":s.extra["valid_output"],"format_compliant":s.extra["format_compliant"],"presentation_wrapper":s.extra["presentation_wrapper"],"experience_case":s.extra["experience_case"],"warmup":s.extra["warmup"],"error_code":s.extra["error_code"],"remedy":s.extra["remedy"],"graded_at":s.extra["graded_at"],"grading_history_count":s.extra["grading_history"].as_array().map(|a|a.len()).unwrap_or(0)}})),"raw":null})).collect::<Vec<_>>()
+            "status":i.status,"verdict":i.verdict(),"attempts":i.attempts.iter().map(|a|serde_json::json!({"started_at":a.started_at,"ended_at":a.ended_at,"output":"","reasoning":"","finish_reason":a.finish_reason,"error":a.error,"metrics":a.metrics,"metric_quality":crate::metrics_quality::evaluate(&a.metrics),"score":a.score.as_ref().map(|s|serde_json::json!({"value":s.value,"state":s.state,"detail":s.detail,"scorer_version":s.scorer_version,"extra":{"valid_output":s.extra["valid_output"],"format_compliant":s.extra["format_compliant"],"presentation_wrapper":s.extra["presentation_wrapper"],"experience_case":s.extra["experience_case"],"warmup":s.extra["warmup"],"error_code":s.extra["error_code"],"remedy":s.extra["remedy"],"graded_at":s.extra["graded_at"],"grading_history_count":s.extra["grading_history"].as_array().map(|a|a.len()).unwrap_or(0)}})),"raw":null})).collect::<Vec<_>>()
         })).collect::<Vec<_>>();
-        serde_json::json!({"id":self.id,"created_at":self.created_at,"config":self.config,"status":self.status,"suite_hash":self.suite_hash,"protocol_version":self.protocol_version,"pack_version":self.pack_version,"provenance":self.provenance,"items":items,"telemetry":self.telemetry,"active_ms":self.active_ms,"error":self.error,"summary":self.summary()})
+        serde_json::json!({"id":self.id,"created_at":self.created_at,"config":self.config,"status":self.status,"suite_hash":self.suite_hash,"protocol_version":self.protocol_version,"pack_version":self.pack_version,"provenance":self.provenance,"items":items,"telemetry":self.telemetry,"active_ms":self.active_ms,"error":self.error,"execution_segments":self.execution_segments,"initial_concurrency":self.initial_concurrency,"concurrency_tuning":self.concurrency_tuning.as_ref().map(|t|t.public(false,true)),"summary":self.summary()})
     }
 
     pub fn public(&self, raw: bool) -> Value {
@@ -271,16 +318,38 @@ impl Run {
                 item["task"]["answer"] = Value::Null;
                 item["task"]["meta"] = Value::Null;
             }
-            if !raw {
-                for a in item["attempts"].as_array_mut().unwrap() {
+            for (n, a) in item["attempts"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .enumerate()
+            {
+                a["metric_quality"] =
+                    crate::metrics_quality::evaluate(&self.items[i].attempts[n].metrics);
+                if !raw {
                     a["raw"] = Value::Null;
                 }
             }
         }
         v["summary"] = self.summary();
+        if let Some(t) = &self.concurrency_tuning { v["concurrency_tuning"] = t.public(raw, false); }
         v
     }
     pub fn summary(&self) -> Value {
+        let current_segment = self.execution_segments.last();
+        let segment_start = current_segment
+            .and_then(|s| s["started_at"].as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
+        let segment_concurrency = current_segment
+            .and_then(|s| s["concurrency"].as_u64())
+            .map(|n| n as usize)
+            .unwrap_or(self.config.concurrency);
+        let mut scoped_requests = 0usize;
+        let mut ignored_requests = 0usize;
+        let mut other_concurrency_requests = 0usize;
+        let mut single_performance_ttft = Vec::new();
+        let mut single_performance_decode = Vec::new();
+        let mut single_performance_n = 0usize;
         let mut subjects: BTreeMap<String, Value> = BTreeMap::new();
         let mut ttft = vec![];
         let mut decode = vec![];
@@ -314,6 +383,7 @@ impl Run {
         let mut tokens = 0u64;
         let mut throughput_n = 0;
         let mut decode_sources: BTreeMap<String, usize> = BTreeMap::new();
+        let mut metric_coverage = crate::metrics_quality::Coverage::default();
         for i in &self.items {
             let s = subjects.entry(i.task.subject.clone()).or_insert(
                 serde_json::json!({"total":0,"completed":0,"collected":0,"scored":0,"points":0.0,"errors":0,"correct":0,"incorrect":0,"partial":0,"score_errors":0,"measured":0,"measurement_errors":0}),
@@ -338,20 +408,67 @@ impl Run {
                 if a.ended_at.is_some() && a.error.is_none() {
                     collected += 1;
                     s["collected"] = (s["collected"].as_u64().unwrap() + 1).into();
+                    let in_current_segment = segment_start.is_none_or(|at| {
+                        chrono::DateTime::parse_from_rfc3339(&a.started_at).is_ok_and(|s| s >= at)
+                    });
+                    let request_concurrency = self.request_concurrency(a);
+                    if i.task.scorer == "experience"
+                        && i.task.meta["warmup"] != true
+                        && request_concurrency == 1
+                    {
+                        let q = crate::metrics_quality::evaluate(&a.metrics);
+                        single_performance_n += 1;
+                        if let Some(v) = a.metrics.ttft_ms.filter(|_| q["valid"]["ttft_ms"] == true)
+                        {
+                            single_performance_ttft.push(v);
+                        }
+                        if let Some(v) = a
+                            .metrics
+                            .client_visible_decode_tps
+                            .filter(|_| q["valid"]["client_visible_decode_tps"] == true)
+                        {
+                            single_performance_decode.push(v);
+                        }
+                    }
                     if i.task.meta["warmup"] != true {
-                        if let Some(x) = a.metrics.ttft_ms {
+                        if !in_current_segment {
+                            ignored_requests += 1;
+                        } else if request_concurrency != segment_concurrency {
+                            other_concurrency_requests += 1;
+                        }
+                    }
+                    if i.task.meta["warmup"] != true
+                        && in_current_segment
+                        && request_concurrency == segment_concurrency
+                    {
+                        scoped_requests += 1;
+                        let q = metric_coverage.observe(&a.metrics);
+                        if let Some(x) = a.metrics.ttft_ms.filter(|_| q["valid"]["ttft_ms"] == true)
+                        {
                             ttft.push(x);
                         }
-                        if let Some(x) = a.metrics.client_visible_decode_tps {
+                        if let Some(x) = a
+                            .metrics
+                            .client_visible_decode_tps
+                            .filter(|_| q["valid"]["client_visible_decode_tps"] == true)
+                        {
                             client_visible_decode.push(x);
                         }
-                        if let Some(x) = a.metrics.decode_tps {
+                        if let Some(x) = a
+                            .metrics
+                            .decode_tps
+                            .filter(|_| q["valid"]["decode_tps"] == true)
+                        {
                             decode.push(x);
                             *decode_sources
                                 .entry(a.metrics.decode_source.clone())
                                 .or_default() += 1;
                         }
-                        if let Some(x) = a.metrics.prefill_tps {
+                        if let Some(x) = a
+                            .metrics
+                            .prefill_tps
+                            .filter(|_| q["valid"]["prefill_tps"] == true)
+                        {
                             prefill.push(x);
                         }
                         if let (Ok(start), Some(Ok(end)), Some(n)) = (
@@ -359,11 +476,12 @@ impl Run {
                             a.ended_at
                                 .as_ref()
                                 .map(|x| chrono::DateTime::parse_from_rfc3339(x)),
-                            if a.metrics.measurement_version.is_empty() {
+                            (if a.metrics.measurement_version.is_empty() {
                                 a.metrics.output_tokens
                             } else {
                                 a.metrics.visible_output_tokens
-                            },
+                            })
+                            .filter(|_| q["valid"]["throughput"] == true),
                         ) {
                             starts.push(start.timestamp_millis());
                             ends.push(end.timestamp_millis());
@@ -466,9 +584,17 @@ impl Run {
         } else {
             "not_started"
         };
+        let ttft = stats(ttft);
+        let decode = stats(decode);
+        let client_visible_decode = stats(client_visible_decode);
+        let prefill = stats(prefill);
+        let metric_quality = metric_coverage.finish();
+        let scope = serde_json::json!({"started_at":current_segment.and_then(|s|s["started_at"].as_str()),"concurrency":segment_concurrency,"request_count":scoped_requests,"ignored_previous_requests":ignored_requests,"other_concurrency_requests":other_concurrency_requests});
+        let current_segment_stats = serde_json::json!({"scope":scope,"ttft_ms":ttft,"decode_tps":decode,"client_visible_decode_tps":client_visible_decode,"prefill_tps":prefill,"output_throughput_tps":throughput,"throughput_n":throughput_n,"metric_quality":metric_quality,
+            "single_request_performance":{"request_count":single_performance_n,"ttft_ms":stats(single_performance_ttft),"client_visible_decode_tps":stats(single_performance_decode),"concurrency":1}});
         serde_json::json!({"total":self.items.len(),"quality_total":quality_total,"performance_total":performance_total,"warmup_total":warmup_total,"completed":completed,"errors":errors,"truncated":truncated,"score_errors":score_errors,"subjects":subjects,
             "collected":collected,"measured":measured,"measurement_errors":measurement_errors,"scored":scored,"correct":correct,"incorrect":incorrect,"partial":partial,"unscored":self.items.len()-scored-measured-measurement_errors,"grading_pending":grading_pending,"collection_status":collection_status,"grading_status":grading_status,"accuracy_percent":if scored>0 {Some(100.0*correct as f64/scored as f64)} else {None},"score_percent":if scored>0 {Some(100.0*points/scored as f64)}else{None},
-            "ttft_ms": stats(ttft),"client_visible_decode_tps":stats(client_visible_decode),"decode_tps":stats(decode),"prefill_tps":stats(prefill),"active_ms":self.active_ms,"decode_sources":decode_sources,
+            "current_segment_stats":current_segment_stats,"execution_segments":self.execution_segments,"metric_scope":scope,"metric_quality":metric_quality,"ttft_ms":ttft,"client_visible_decode_tps":client_visible_decode,"decode_tps":decode,"prefill_tps":prefill,"active_ms":self.active_ms,"decode_sources":decode_sources,
             "output_throughput_tps":throughput,"throughput_n":throughput_n,"throughput_scope":"첫 요청 시작~마지막 응답 완료; 프리필·요청 사이 채점·일시정지 포함"})
     }
 }
@@ -505,6 +631,56 @@ mod scoring_summary_tests {
     }
     fn scored(value: f64) -> Value {
         json!({"value":value,"state":"scored","detail":"fixture","scorer_version":"fixture"})
+    }
+    #[test]
+    fn concurrency_segments_keep_quality_but_do_not_mix_performance() {
+        let mut r = run(vec![
+            item("done", scored(1.0)),
+            item("done", scored(0.0)),
+            item("done", scored(1.0)),
+        ]);
+        r.config.concurrency = 4;
+        r.execution_segments = vec![
+            json!({"started_at":"2026-11-07T00:00:00Z","concurrency":1}),
+            json!({"started_at":"2026-11-07T01:00:00Z","concurrency":4}),
+        ];
+        for (n, i) in r.items.iter_mut().enumerate() {
+            let a = &mut i.attempts[0];
+            a.started_at = if n == 0 {
+                "2026-11-07T00:10:00Z"
+            } else {
+                "2026-11-07T01:10:00Z"
+            }
+            .into();
+            a.ended_at = Some(
+                if n == 0 {
+                    "2026-11-07T00:10:02Z"
+                } else {
+                    "2026-11-07T01:10:02Z"
+                }
+                .into(),
+            );
+            a.metrics.wall_ms = 2000.;
+            a.metrics.decode_source = "server".into();
+            a.metrics.decode_tps = Some(if n == 1 { 40. } else { 1000. });
+            a.metrics.ttft_ms = Some(500.);
+            a.metrics.output_tokens = Some(100);
+        }
+        r.items[2].task.scorer = "experience".into();
+        r.items[2].attempts[0].metrics.request_concurrency = Some(1);
+        let summary = r.summary();
+        assert_eq!(summary["scored"], 3);
+        assert_eq!(summary["decode_tps"]["median"], 40.);
+        assert_eq!(summary["decode_tps"]["n"], 1);
+        assert_eq!(summary["metric_scope"]["ignored_previous_requests"], 1);
+        assert_eq!(summary["metric_scope"]["other_concurrency_requests"], 1);
+        assert_eq!(
+            summary["current_segment_stats"]["single_request_performance"]["request_count"],
+            1
+        );
+        assert_eq!(r.items[0].attempts[0].metrics.decode_tps, Some(1000.));
+        assert_eq!(r.request_concurrency(&r.items[0].attempts[0]), 1);
+        assert_eq!(r.request_concurrency(&r.items[1].attempts[0]), 4);
     }
     #[test]
     fn collected_and_grading_failures_do_not_become_wrong_answers() {

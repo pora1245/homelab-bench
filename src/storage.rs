@@ -16,6 +16,11 @@ struct Header<'a> {
     telemetry: &'a Vec<Value>,
     active_ms: f64,
     error: &'a Option<String>,
+    execution_segments: &'a Vec<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_concurrency: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    concurrency_tuning: &'a Option<crate::auto_concurrency::Tuning>,
     items: [u8; 0],
 }
 fn header(r: &Run) -> Header<'_> {
@@ -31,6 +36,9 @@ fn header(r: &Run) -> Header<'_> {
         telemetry: &r.telemetry,
         active_ms: r.active_ms,
         error: &r.error,
+        execution_segments: &r.execution_segments,
+        initial_concurrency: r.initial_concurrency,
+        concurrency_tuning: &r.concurrency_tuning,
         items: [],
     }
 }
@@ -177,4 +185,209 @@ pub async fn restore(db: &SqlitePool, id: &str) -> anyhow::Result<Run> {
         .await?;
     tx.commit().await?;
     Ok(r)
+}
+
+#[cfg(test)]
+mod segment_persistence_tests {
+    use super::*;
+    use axum::{
+        Json,
+        extract::{Path, State},
+    };
+    use serde_json::json;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tokio::sync::broadcast;
+
+    #[tokio::test]
+    async fn concurrency_control_persists_segments_without_rewriting_original_items() {
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE runs(id TEXT PRIMARY KEY,body TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        init(&db).await.unwrap();
+        let (events, _) = broadcast::channel(8);
+        let s = App {
+            data_dir: "/unused-no-credentials".into(),
+            db,
+            events,
+            preflights: Default::default(),
+            runs: Default::default(),
+            packs: Default::default(),
+            keys: Default::default(),
+            judge_keys: Default::default(),
+            active: Default::default(),
+            settings_lock: Default::default(),
+            dirty: Default::default(),
+        };
+        let r:Run=serde_json::from_value(json!({"id":"fixture","created_at":"2026-01-01T00:00:00Z","config":{"name":"fixture","base_url":"http://localhost:1/v1","model":"fixture","pack_id":"fixture","profile":"full","temperature":0,"max_tokens":32,"concurrency":1,"timeout_s":5},"status":"paused","suite_hash":"fixture","protocol_version":"fixture","pack_version":"fixture","provenance":"fixture","items":[],"telemetry":[],"active_ms":1000,"error":null})).unwrap();
+        save(&s, &r, true).await.unwrap();
+        // Extra precision and formatting are intentional evidence. Deserializing
+        // and writing this row again would change bytes despite equal meaning.
+        let original = r#"{ "task":{"id":"fixture:0","subject":"math","prompt":"p","answer":1,"scorer":"numeric","max_tokens":32},"status":"done","attempts":[{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z","output":"1","reasoning":"","finish_reason":"stop","error":null,"metrics":{"ttft_ms":100,"wall_ms":1000,"input_tokens":1,"output_tokens":1,"decode_tps":0.123456789012345678901,"prefill_tps":10,"decode_source":"server","prefill_source":"server"},"score":{"value":1,"state":"scored","detail":"original","scorer_version":"fixture"},"raw":[]}] }"#;
+        sqlx::query("INSERT INTO run_items(run_id,position,body) VALUES('fixture',0,?)")
+            .bind(original)
+            .execute(&s.db)
+            .await
+            .unwrap();
+        let mut loaded = r.clone();
+        load_items(&s.db, &mut loaded).await.unwrap();
+        s.runs.lock().await.insert(loaded.id.clone(), loaded);
+        let result = crate::control(
+            State(s.clone()),
+            Path(("fixture".into(), "concurrency".into())),
+            Json(json!({"concurrency":4})),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.0["concurrency"], 4);
+        let (stored,): (String,) =
+            sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture'")
+                .fetch_one(&s.db)
+                .await
+                .unwrap();
+        assert_eq!(stored, original);
+        let (head,): (String,) = sqlx::query_as("SELECT body FROM runs WHERE id='fixture'")
+            .fetch_one(&s.db)
+            .await
+            .unwrap();
+        let mut reloaded: Run = serde_json::from_str(&head).unwrap();
+        assert_eq!(reloaded.config.concurrency, 4);
+        assert_eq!(reloaded.execution_segments.len(), 2);
+        assert_eq!(reloaded.execution_segments[0]["concurrency"], 1);
+        assert_eq!(reloaded.execution_segments[1]["concurrency"], 4);
+        assert_eq!(reloaded.execution_segments[1]["completed_before"], 1);
+        load_items(&s.db, &mut reloaded).await.unwrap();
+        assert_eq!(reloaded.items.len(), 1);
+        assert_eq!(
+            reloaded.request_concurrency(&reloaded.items[0].attempts[0]),
+            1
+        );
+        // Metadata-only pause/cancel transitions preserve every existing byte.
+        s.runs.lock().await.get_mut("fixture").unwrap().status = "running".into();
+        for action in ["pause", "cancel"] {
+            let _ = crate::control(
+                State(s.clone()),
+                Path(("fixture".into(), action.into())),
+                Json(json!({})),
+            )
+            .await
+            .unwrap();
+            let (body,): (String,) =
+                sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=0")
+                    .fetch_one(&s.db)
+                    .await
+                    .unwrap();
+            assert_eq!(body, original);
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let router=axum::Router::new().route("/v1/chat/completions",axum::routing::post(|| async {Json(json!({"choices":[{"message":{"content":"1"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}))}));
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        {
+            let mut runs = s.runs.lock().await;
+            let r = runs.get_mut("fixture").unwrap();
+            r.status = "paused".into();
+            r.config.base_url = url;
+            let mut pending = r.items[0].clone();
+            pending.task.id = "fixture:1".into();
+            pending.status = "pending".into();
+            pending.attempts.clear();
+            r.items.push(pending);
+            s.dirty
+                .lock()
+                .await
+                .entry("fixture".into())
+                .or_default()
+                .insert(1);
+            save(&s, r, false).await.unwrap();
+        }
+        let wait_complete = || async {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    if !s.active.lock().await.contains("fixture") {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap();
+        };
+        let _ = crate::control(
+            State(s.clone()),
+            Path(("fixture".into(), "resume".into())),
+            Json(json!({"api_key":""})),
+        )
+        .await
+        .unwrap();
+        wait_complete().await;
+        let (body,): (String,) =
+            sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=0")
+                .fetch_one(&s.db)
+                .await
+                .unwrap();
+        assert_eq!(body, original);
+        {
+            let mut runs = s.runs.lock().await;
+            let r = runs.get_mut("fixture").unwrap();
+            r.status = "paused".into();
+            r.items[1].status = "error".into();
+            r.items[1].attempts.last_mut().unwrap().error = Some("fixture failure".into());
+            s.dirty
+                .lock()
+                .await
+                .entry("fixture".into())
+                .or_default()
+                .insert(1);
+            save(&s, r, false).await.unwrap();
+        }
+        s.dirty
+            .lock()
+            .await
+            .entry("fixture".into())
+            .or_default()
+            .insert(0);
+        sqlx::query("CREATE TRIGGER fail_header BEFORE UPDATE ON runs BEGIN SELECT RAISE(FAIL,'fixture write failure'); END").execute(&s.db).await.unwrap();
+        assert!(
+            crate::control(
+                State(s.clone()),
+                Path(("fixture".into(), "retry".into())),
+                Json(json!({"api_key":""}))
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(
+            s.dirty.lock().await["fixture"],
+            std::collections::BTreeSet::from([0])
+        );
+        assert_eq!(s.runs.lock().await["fixture"].status, "paused");
+        assert_eq!(s.runs.lock().await["fixture"].items[1].status, "error");
+        sqlx::query("DROP TRIGGER fail_header")
+            .execute(&s.db)
+            .await
+            .unwrap();
+        s.dirty.lock().await.clear();
+        let _ = crate::control(
+            State(s.clone()),
+            Path(("fixture".into(), "retry".into())),
+            Json(json!({"api_key":""})),
+        )
+        .await
+        .unwrap();
+        wait_complete().await;
+        let (body,): (String,) =
+            sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=0")
+                .fetch_one(&s.db)
+                .await
+                .unwrap();
+        assert_eq!(body, original);
+        assert_eq!(s.runs.lock().await["fixture"].items[1].status, "done");
+        server.abort();
+    }
 }
