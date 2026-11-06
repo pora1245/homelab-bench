@@ -1,0 +1,72 @@
+{
+  "status": "ready",
+  "id": "bench-api-experience-v1-gpt61sol-20261105-435dea8c",
+  "protocol": "api-experience-v1",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "low",
+  "measured_at": "2026-11-05T21:05:24.248338+00:00",
+  "run_id": "435dea8c-0df0-41c9-839a-6870c651b835",
+  "suite_hash": "dabe926420a8c2a4e608a41b111480781359a64bbc1f7e0b7c29e103e05d7deb",
+  "measurement_version": "client-visible-v1",
+  "concurrency": 1,
+  "max_output_tokens": 4096,
+  "temperature": "omitted (reasoning model default)",
+  "cases": {
+    "english": {
+      "decode_tps": 43.573628566882505,
+      "ttft_ms": 2737.6243329999998,
+      "prompt_sha256": "18966fd665bf42803635551128b9097417bccfce05f5ed188211b4974146f80c",
+      "count": 3,
+      "decode_range": [
+        41.14987966509337,
+        46.33171886193843
+      ],
+      "ttft_range_ms": [
+        2121.205542,
+        2933.521792
+      ]
+    },
+    "korean": {
+      "decode_tps": 52.74499476111517,
+      "ttft_ms": 2270.8421670000002,
+      "prompt_sha256": "61fb900fc7b99bf4b9edaf3ef065680cfe27c40eade251b3fc810de12b4f42ef",
+      "count": 3,
+      "decode_range": [
+        42.63088905154681,
+        55.35258085009219
+      ],
+      "ttft_range_ms": [
+        1815.4552499999998,
+        3084.4773339999997
+      ]
+    },
+    "code": {
+      "decode_tps": 128.48828950237905,
+      "ttft_ms": 6456.560083,
+      "prompt_sha256": "7076f05ccb8f8c2720d86f95826441b6fbd1ae4cb121fc64fa768926c1f85573",
+      "count": 3,
+      "decode_range": [
+        120.12974508269434,
+        138.04607287682265
+      ],
+      "ttft_range_ms": [
+        6041.229625,
+        6770.199208
+      ]
+    },
+    "structured": {
+      "decode_tps": 49.46285718279843,
+      "ttft_ms": 2826.031125,
+      "prompt_sha256": "036a93e2c3de58a06fd232f2243b354405b4367d75b467b4822dac65d99642bc",
+      "count": 3,
+      "decode_range": [
+        46.92351033218423,
+        50.79269938048552
+      ],
+      "ttft_range_ms": [
+        2125.678875,
+        3654.7754999999997
+      ]
+    }
+  }
+}

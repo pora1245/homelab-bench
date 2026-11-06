@@ -1,0 +1,232 @@
+{
+  "id": "api-experience-v1",
+  "name": "응답 경험 · API 기준 성능",
+  "version": "1.0.0",
+  "sources": {
+    "benchmark": "API 응답 경험",
+    "purpose": "api_experience",
+    "license": "CC0-1.0",
+    "redistribution": "allowed",
+    "source_revision": "api-experience-v1",
+    "source_count": 13,
+    "installed_count": 13,
+    "quick_count": 13,
+    "quick_ids": [
+      "experience:warmup:0",
+      "experience:english:1",
+      "experience:korean:1",
+      "experience:code:1",
+      "experience:structured:1",
+      "experience:english:2",
+      "experience:korean:2",
+      "experience:code:2",
+      "experience:structured:2",
+      "experience:english:3",
+      "experience:korean:3",
+      "experience:code:3",
+      "experience:structured:3"
+    ],
+    "measured_count": 12,
+    "warmup_count": 1,
+    "selection": "고정 4유형 각 3회 + 제외되는 예열 1회",
+    "protocol": "api-experience-v1",
+    "description": "가시 답변 TTFT와 출력 속도; 지능 정답률과 별도"
+  },
+  "tasks": [
+    {
+      "id": "experience:warmup:0",
+      "subject": "응답 경험",
+      "prompt": "Reply with exactly this text and nothing else: 준비 완료",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "warmup",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "d0e5dcfe11237bc2f5bceee63f6da95a0df34d55ecbd5e5eb00107cb07c9950b",
+        "repeat": 0,
+        "warmup": true
+      }
+    },
+    {
+      "id": "experience:english:1",
+      "subject": "응답 경험",
+      "prompt": "Write a clear English explanation of how a refrigerator transfers heat. Use six paragraphs, about 350 words total. Start the explanation immediately; no heading.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "english",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "18966fd665bf42803635551128b9097417bccfce05f5ed188211b4974146f80c",
+        "repeat": 1,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:korean:1",
+      "subject": "응답 경험",
+      "prompt": "냉장고가 열을 밖으로 옮기는 원리를 한국어로 설명하세요. 여섯 문단, 총 1200자 정도로 쓰세요. 제목 없이 바로 설명을 시작하세요.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "korean",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "61fb900fc7b99bf4b9edaf3ef065680cfe27c40eade251b3fc810de12b4f42ef",
+        "repeat": 1,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:code:1",
+      "subject": "응답 경험",
+      "prompt": "Write Python source only, no markdown: implement an LRU cache with capacity, get and put using OrderedDict, type hints, docstrings, and a unittest class with six test methods. Do not execute code.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "code",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "7076f05ccb8f8c2720d86f95826441b6fbd1ae4cb121fc64fa768926c1f85573",
+        "repeat": 1,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:structured:1",
+      "subject": "응답 경험",
+      "prompt": "Return a JSON array only containing 24 objects. Each object has integer id (1 through 24), name (an invented English fruit drink name), and description (one English sentence of 12 to 16 words). No markdown.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "structured",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "036a93e2c3de58a06fd232f2243b354405b4367d75b467b4822dac65d99642bc",
+        "repeat": 1,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:english:2",
+      "subject": "응답 경험",
+      "prompt": "Write a clear English explanation of how a refrigerator transfers heat. Use six paragraphs, about 350 words total. Start the explanation immediately; no heading.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "english",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "18966fd665bf42803635551128b9097417bccfce05f5ed188211b4974146f80c",
+        "repeat": 2,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:korean:2",
+      "subject": "응답 경험",
+      "prompt": "냉장고가 열을 밖으로 옮기는 원리를 한국어로 설명하세요. 여섯 문단, 총 1200자 정도로 쓰세요. 제목 없이 바로 설명을 시작하세요.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "korean",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "61fb900fc7b99bf4b9edaf3ef065680cfe27c40eade251b3fc810de12b4f42ef",
+        "repeat": 2,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:code:2",
+      "subject": "응답 경험",
+      "prompt": "Write Python source only, no markdown: implement an LRU cache with capacity, get and put using OrderedDict, type hints, docstrings, and a unittest class with six test methods. Do not execute code.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "code",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "7076f05ccb8f8c2720d86f95826441b6fbd1ae4cb121fc64fa768926c1f85573",
+        "repeat": 2,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:structured:2",
+      "subject": "응답 경험",
+      "prompt": "Return a JSON array only containing 24 objects. Each object has integer id (1 through 24), name (an invented English fruit drink name), and description (one English sentence of 12 to 16 words). No markdown.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "structured",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "036a93e2c3de58a06fd232f2243b354405b4367d75b467b4822dac65d99642bc",
+        "repeat": 2,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:english:3",
+      "subject": "응답 경험",
+      "prompt": "Write a clear English explanation of how a refrigerator transfers heat. Use six paragraphs, about 350 words total. Start the explanation immediately; no heading.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "english",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "18966fd665bf42803635551128b9097417bccfce05f5ed188211b4974146f80c",
+        "repeat": 3,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:korean:3",
+      "subject": "응답 경험",
+      "prompt": "냉장고가 열을 밖으로 옮기는 원리를 한국어로 설명하세요. 여섯 문단, 총 1200자 정도로 쓰세요. 제목 없이 바로 설명을 시작하세요.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "korean",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "61fb900fc7b99bf4b9edaf3ef065680cfe27c40eade251b3fc810de12b4f42ef",
+        "repeat": 3,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:code:3",
+      "subject": "응답 경험",
+      "prompt": "Write Python source only, no markdown: implement an LRU cache with capacity, get and put using OrderedDict, type hints, docstrings, and a unittest class with six test methods. Do not execute code.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "code",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "7076f05ccb8f8c2720d86f95826441b6fbd1ae4cb121fc64fa768926c1f85573",
+        "repeat": 3,
+        "warmup": false
+      }
+    },
+    {
+      "id": "experience:structured:3",
+      "subject": "응답 경험",
+      "prompt": "Return a JSON array only containing 24 objects. Each object has integer id (1 through 24), name (an invented English fruit drink name), and description (one English sentence of 12 to 16 words). No markdown.",
+      "answer": null,
+      "scorer": "experience",
+      "max_tokens": 4096,
+      "meta": {
+        "experience_case": "structured",
+        "performance_protocol": "api-experience-v1",
+        "prompt_sha256": "036a93e2c3de58a06fd232f2243b354405b4367d75b467b4822dac65d99642bc",
+        "repeat": 3,
+        "warmup": false
+      }
+    }
+  ]
+}

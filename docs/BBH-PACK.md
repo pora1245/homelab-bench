@@ -1,0 +1,50 @@
+# 복합 논리 추론 · BIG-Bench Hard
+
+추가 팩 `bbh-cot-full-v1`은 공식 BBH 원본 전체를 사용한다. 전체 6,511문항·27개 하위 과제이며 논문의 23과제 중 논리적 순서 추론과 물체 추적이 각각 3개 난도로 나뉘어 파일 수가 27개다. 빠른 시험은 각 하위 과제에서 SHA256 순서로 2개씩 선택한 54문항이다. seed·선택 문항 ID를 팩에 고정했다.
+
+공식 저장소: <https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d>
+
+논문: Suzgun et al., *Challenging BIG-Bench Tasks and Whether Chain-of-Thought Can Solve Them*, <https://arxiv.org/abs/2210.09261>. 원 BIG-bench 논문: Srivastava et al., <https://arxiv.org/abs/2206.04615>.
+
+## 프롬프트와 정답 경계
+
+`cot-prompts`의 공식 과제 설명·3개 풀이 예시를 바꾸지 않고 사용한다. canary 헤더는 원본과 팩 출처 필드에 보존하며 모델 입력 본문에서는 분리한다. 그 뒤 `Q: {평가 입력}`과 `A: Let's think step by step.`을 붙여 단일 user 메시지로 전송한다. 현재 평가 문항의 정답은 `Task.answer`에만 있으며 전송하지 않는다. 프롬프트의 세 예시 정답은 공식 3-shot 규약에 포함된다.
+
+공식 공개 Codex 실행 입력과 6,511개를 행별 대조해 6,510개가 바이트 단위로 일치했다. 남은 1개는 아래에 설명한 공식 평가 JSON 자체의 손상이다. 실제 모델의 chat template과 추론 설정은 과거 completion API와 다를 수 있으며 앱 결과를 과거 모델 점수의 완전한 재현이라고 표시하지 않는다.
+
+## 채점 규약
+
+논문은 temperature 0, `the answer is` 표식을 이용한 답안 추출, 정답 문자열의 exact match를 사용한다. 공식 저장소에는 데이터·프롬프트·공개 출력이 있으나 실행 가능한 채점 코드는 없다. 따라서 Rust 내장 채점기 `bbh-marker-exact-v1`은 다음 규칙을 고정한 앱 구현이다.
+
+1. 대소문자를 무시하고 마지막 `the answer is` 표식을 찾는다.
+2. 이후 처음 나오는 비어 있지 않은 줄에서 앞뒤 공백과 마지막 마침표 하나를 제거한다.
+3. 대소문자·내부 공백을 바꾸지 않고 정답 전체 문자열과 정확히 비교한다.
+4. 표식이 없거나 답안이 여러 선택지·부가 설명을 포함하면 임의로 정답을 추정하지 않는다.
+
+공식 공개 `code-davinci-002` CoT 출력 6,511개에 이 추출만 적용했을 때 27개 하위 과제 모두 공개 정확도와 같았다. 이는 집계 수치의 일치다. 공식 문항별 판정과 채점 코드가 공개되지 않았으므로 모든 문항의 판정 구현까지 같다는 증명은 아니다. 이 감사는 원자료 결함 문항을 제외하기 전, 공개 실행의 완전한 입력에 대한 추출 규칙 비교이며 새 모델 추론을 실행한 결과가 아니다.
+
+표시하는 BBH 정확도는 채점된 문항에 동일 가중치를 준다. 논문의 23과제 단순 평균과 집계 방식이 다르다. 기존 일곱 벤치마크로 만든 지능 점수의 가중치에는 BBH를 추가하지 않고 별도 진단 결과로 제공한다.
+
+## 원자료 품질과 보존
+
+`snarks:0088`(0-based)의 공식 JSON 입력은 `(A) The NB`에서 끊겨 선택지 B가 없다. 같은 공식 저장소에 공개된 Codex 입력은 완전하다. 앱은 평가 원본을 임의로 교체하지 않고 해당 문항에 `meta.source_issue`를 붙여 채점 불가로 처리한다. 0점으로 계산하지 않는다. 빠른 54문항에는 이 문항이 없다.
+
+추가로 causal_judgement에는 입력이 같지만 정답이 다른 두 쌍(0032/0119, 0036/0104)이 있어 이 4문항도 원본을 보존하고 채점 불가로 처리한다. 총 6,511문항 중 최대 6,506문항이 유효 채점 대상이며, 빠른54에는 제외 대상5문항이 하나도 없다. sports_understanding의 입력과 정답이 모두 같은 두 쌍(0027/0155, 0080/0227)은 공식 원본과 가중치를 유지한다. 중복·상충 내역은 감사 JSON에 남긴다. 앱의 유효6,506문항 정확도와 원논문의6,511문항 평가 조건은 서로 다르다.
+
+## 재현과 검사
+
+개발 저장소의 원본 57파일은 `datasets/sources/bbh/`, 고정 URL·SHA256·바이트 수는 `datasets/sources/bbh-manifest.json`에 있다. 라이선스·canary·원본 README도 보존한다. 베타 ZIP에는 완성된 팩과 manifest·재현 도구를 담고 원본 캐시는 제외한다. Python 표준 라이브러리만으로 팩을 만들며 실제 채점은 Rust 내장이다. 아래 원본 검사를 재현하려면 먼저 `--download`로 고정 원본을 받아야 한다.
+
+```sh
+python3 tools/import_bbh.py --dry-run
+python3 tools/import_bbh.py --download
+python3 tests/bbh_contracts.py
+# 소스 ZIP에서 Rust/Cargo를 설치한 경우에만
+cargo test bbh_explicit_marker_exact_match_contract
+# 공개 출력 감사를 재현할 때만, 고정 revision의 공식 checkout 경로 지정
+python3 tools/audit_bbh_published_outputs.py --upstream-root /path/to/BIG-Bench-Hard --output data/bbh-published-output-audit.json
+```
+
+다운로드 없이 실행하면 현재 원본을 해시 검사한 후 동일 바이트의 팩을 재생성한다. 원본이 변조됐으면 덮어쓰지 않고 중단한다. 다운로드는 누락된 고정 원본만 받고 검증한 뒤 채택한다. 공식 공개 모델 출력 전문은 베타 번들에 포함하지 않고, 선택적 재현용 해시 manifest와 요약 검증 결과만 포함한다.
+
+동봉 근거: `docs/bbh-validation.json`, `docs/bbh-published-output-audit.json`. 검증 요약에는 개발 저장소에서 실행한 전체 통합 검사도 기록하며, 해당 전체 개발 검사 도구를 모두 베타에 넣는 것은 아니다. 원본 BBH 저장소 MIT 허가문과 저작권, 원 BIG-bench의 Apache-2.0 및 출처 고지는 `docs/licenses/`와 `docs/THIRD-PARTY-NOTICES.md`에서 확인할 수 있다. 논문 자체의 라이선스를 데이터 저장소 라이선스로 대체하지 않는다.

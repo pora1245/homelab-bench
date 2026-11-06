@@ -1,0 +1,77 @@
+{
+  "audited_at": "2026-11-06",
+  "status": "third_party_data_scope_reviewed; app_own_license_pending",
+  "third_party_datasets": [
+    {
+      "file": "datasets/gsm8k-test-v1.json",
+      "sha256": "3bee20636375685d2fa6f7343be12f5f50dead62192a217c088f093e3a2a4587"
+    },
+    {
+      "file": "datasets/ifeval-full-v1.json",
+      "sha256": "6b2b1ba45defb5f131d3184fecb0fde1f00a760809190ae6c393fb51e8885918"
+    },
+    {
+      "file": "datasets/humaneval-full-v1.json",
+      "sha256": "80f71f7e442db14d10ecfe85f5000c6f9bf81177fdc2f7f09afe7ca9be353b8e"
+    },
+    {
+      "file": "datasets/mbpp-test-v1.json",
+      "sha256": "1585febb77225cc80cc0a86cbf577827607066558c9a7c502fe60e34ee1ccb11"
+    },
+    {
+      "file": "datasets/math500-test-v1.json",
+      "sha256": "7b43c660373f96704347fc208a70d6f807a064e3acfa51d7c5a5acea520d2688"
+    },
+    {
+      "file": "datasets/mmlu-pro-test-v1.json",
+      "sha256": "a603aeb99d8cbabc725699418dda3308efdec57a724308b670907fc3ef8e0d34"
+    },
+    {
+      "file": "datasets/bbh-cot-full-v1.json",
+      "sha256": "e705dc1d378f8ddaecae9e2ccd2296569f41ac99531ba45739491e17a4fec0e9"
+    }
+  ],
+  "project_authored_data": [
+    "datasets/api-experience-v1.json"
+  ],
+  "excluded_data": [
+    "datasets/public-core.json",
+    "datasets/korean-core-v1.json",
+    "datasets/livecodebench-v6-v1.json",
+    "datasets/sources/livecodebench-v6-tests/**",
+    "datasets/sources/downloads/**"
+  ],
+  "required_notices": [
+    "LICENSES/GSM8K-MIT.txt",
+    "LICENSES/HumanEval-MIT.txt",
+    "LICENSES/IFEval-Apache-2.0.txt",
+    "LICENSES/MBPP-dataset-card.md",
+    "LICENSES/MBPP-README.md",
+    "LICENSES/MBPP-repository-Apache-2.0.txt",
+    "LICENSES/LiveCodeBench-code-MIT.txt",
+    "docs/THIRD-PARTY-NOTICES.md",
+    "docs/DISTRIBUTION-LICENSE-AUDIT.md",
+    "docs/python-dependencies.json",
+    "docs/licenses/**",
+    "docs/math500-source-equivalence.json",
+    "docs/dataset-expansion-sources.json",
+    "docs/rust-toolchain-notices.json",
+    "docs/licenses/MMLU-Pro-data-MIT.txt",
+    "docs/licenses/MMLU-Pro-dataset-card.md",
+    "docs/licenses/PRM800K-MIT.txt",
+    "docs/licenses/MATH-MIT.txt",
+    "docs/licenses/BBH-MIT.txt",
+    "docs/licenses/BIG-bench-Apache-2.0.txt"
+  ],
+  "must_exclude": [
+    "data/**",
+    ".venv/**",
+    "web/node_modules/**",
+    ".git/**",
+    "evidence/**"
+  ],
+  "vendor_manifest_unchanged": true,
+  "note": "Data allowlist is not a grant of rights in the app itself. Rust/npm license inventory must also accompany binary/JS distribution.",
+  "scope_revision": "2026-11-06.2-expanded",
+  "review_correction": "MMLU-Pro official data MIT accepted; MATH-500 500/500 equivalent to official MIT PRM800K split; BBH added with MIT and original BIG-bench Apache notices. ARC and WinoGrande remain documented future candidates."
+}

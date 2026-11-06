@@ -1,0 +1,313 @@
+{
+  "created": "2026-11-06",
+  "scope": "Installed required scorer dependency closure; .venv and wheels excluded from beta bundle. Metadata is evidence, not a replacement for license text.",
+  "packages": [
+    {
+      "name": "absl-py",
+      "version": "2.3.1",
+      "declared_license": "Apache-2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/absl-py-2.3.1/AUTHORS",
+          "sha256": "6282ee76cca569083b5b998b9f816ba1032e127b8dc7c46942b86477fc6fbfa5"
+        },
+        {
+          "file": "docs/licenses/python/absl-py-2.3.1/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Changelog, https://github.com/abseil/abseil-py/blob/main/CHANGELOG.md",
+        "Documentation, https://abseil.io/docs/python/",
+        "Issues, https://github.com/abseil/abseil-py/issues",
+        "Source, https://github.com/abseil/abseil-py"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "antlr4-python3-runtime",
+      "version": "4.13.2",
+      "declared_license": "BSD",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/antlr4-python3-runtime-4.13.2/LICENSE.txt",
+          "sha256": "3db1fb3ee79a4b4f9918fc4d0f6133bf18a3cf787f126cd22f8aa9b862281c0c",
+          "upstream_url": "https://raw.githubusercontent.com/antlr/antlr4/4.13.2/LICENSE.txt"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Homepage, http://www.antlr.org"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "click",
+      "version": "8.5.0",
+      "declared_license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/click-8.5.0/LICENSE.txt",
+          "sha256": "9a8ad106a394e853bfe21f42f4e72d592819a22805d991b5f3275029292b658d"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Changes, https://click.palletsprojects.com/page/changes/",
+        "Chat, https://discord.gg/pallets",
+        "Documentation, https://click.palletsprojects.com/",
+        "Donate, https://palletsprojects.com/donate",
+        "Source, https://github.com/pallets/click/"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "cloudpickle",
+      "version": "3.1.2",
+      "declared_license": "BSD-3-Clause",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/cloudpickle-3.1.2/LICENSE",
+          "sha256": "3029ea34173e9fdc233ad315dc6b100bd1ea71f529b1c1af97664a272fdc55f5"
+        }
+      ],
+      "metadata_homepage": "https://github.com/cloudpipe/cloudpickle",
+      "project_urls": [],
+      "bundled_runtime": false
+    },
+    {
+      "name": "immutabledict",
+      "version": "4.2.2",
+      "declared_license": "MIT",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/immutabledict-4.2.2/LICENSE",
+          "sha256": "347f918d37d4e0556a0695d34b9fb87fa9bbe808d54949851789c6c1fc91c61f"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Documentation, https://immutabledict.corenting.fr",
+        "Homepage, https://github.com/corenting/immutabledict",
+        "Repository, https://github.com/corenting/immutabledict",
+        "bugtracker, https://github.com/corenting/immutabledict/issues",
+        "changelog, https://github.com/corenting/immutabledict/blob/master/CHANGELOG.md",
+        "donation, https://corenting.fr/donate"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "joblib",
+      "version": "1.6.0",
+      "declared_license": "BSD-3-Clause",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/joblib-1.6.0/LICENSE.txt",
+          "sha256": "42612911c1872c5e4b43f6ae0e8ee59467cd350332241cf72ce90640264fae6a"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Homepage, https://joblib.readthedocs.io",
+        "Source, https://github.com/joblib/joblib"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "langdetect",
+      "version": "1.0.9",
+      "declared_license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/langdetect-1.0.9/LICENSE",
+          "sha256": "9c539fdc47fa4e195b88efaa6495f11463de271f59c8de96feb8bc9c8abab1ab"
+        },
+        {
+          "file": "docs/licenses/python/langdetect-1.0.9/NOTICE",
+          "sha256": "bc22bad5907339e12834d91f7809ec35c3c44fa4b812f274ebfefa38de080869"
+        }
+      ],
+      "metadata_homepage": "https://github.com/Mimino666/langdetect",
+      "project_urls": [],
+      "bundled_runtime": false
+    },
+    {
+      "name": "latex2sympy2_extended",
+      "version": "1.11.0",
+      "declared_license": "MIT",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/latex2sympy2-extended-1.11.0/LICENSE.txt",
+          "sha256": "007bc30a58fa40a996e772047120de4eaf31f5110e4f9c3b5f93fcdfbe2eaca1"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Homepage, https://github.com/OrangeX4/latex2sympy2",
+        "Repository, https://github.com/OrangeX4/latex2sympy2.git"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "math-verify",
+      "version": "0.9.0",
+      "declared_license": "Apache 2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/math-verify-0.9.0/LICENCE",
+          "sha256": "7625cd605224aba59452e3b2915e0afe8597c5f0bdf3cb670c9ac1852789f00b"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Repository, https://github.com/huggingface/math-verify"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "mpmath",
+      "version": "1.3.0",
+      "declared_license": "BSD",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/mpmath-1.3.0/LICENSE",
+          "sha256": "c26cae81da4508e5e249985777a33821f183223ebb74d7f8cfbf90fe7eef2fb7"
+        }
+      ],
+      "metadata_homepage": "http://mpmath.org/",
+      "project_urls": [
+        "Source, https://github.com/fredrik-johansson/mpmath",
+        "Tracker, https://github.com/fredrik-johansson/mpmath/issues",
+        "Documentation, http://mpmath.org/doc/current/"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "nltk",
+      "version": "3.9.2",
+      "declared_license": "Apache License, Version 2.0",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/nltk-3.9.2/AUTHORS.md",
+          "sha256": "18f253abe3956642457d40560da65e282b19767ececbb7f9cbfc7fd98dc0460f"
+        },
+        {
+          "file": "docs/licenses/python/nltk-3.9.2/LICENSE.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "metadata_homepage": "https://www.nltk.org/",
+      "project_urls": [
+        "Documentation, https://www.nltk.org/",
+        "Source Code, https://github.com/nltk/nltk",
+        "Issue Tracker, https://github.com/nltk/nltk/issues"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "regex",
+      "version": "2026.9.29",
+      "declared_license": "Apache-2.0 AND CNRI-Python",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/regex-2026.9.29/LICENSE.txt",
+          "sha256": "bff55ef4cdcc8c14ce259f8e8ab60e264418440d6335f4dc138273fbd506144d"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "Homepage, https://github.com/mrabarnett/mrab-regex"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "six",
+      "version": "1.17.0",
+      "declared_license": "MIT",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/six-1.17.0/LICENSE",
+          "sha256": "4375ba20e2b9c6c4e7cad2940a628fd90e95cc3d50ee92aae755715d8ba1fbd0"
+        }
+      ],
+      "metadata_homepage": "https://github.com/benjaminp/six",
+      "project_urls": [],
+      "bundled_runtime": false
+    },
+    {
+      "name": "sympy",
+      "version": "1.14.0",
+      "declared_license": "BSD",
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/sympy-1.14.0/AUTHORS",
+          "sha256": "82b1038521b0696c63c90b31ed4a0a2c9c4c16871c648b157b07ca44b6f18f8d"
+        },
+        {
+          "file": "docs/licenses/python/sympy-1.14.0/LICENSE",
+          "sha256": "07a5e9819f727b4986ad2829c7a29a6320d42575f720eb24d71b7fef573a0286"
+        },
+        {
+          "file": "docs/licenses/python/sympy-1.14.0/LICENSE.txt",
+          "sha256": "007bc30a58fa40a996e772047120de4eaf31f5110e4f9c3b5f93fcdfbe2eaca1"
+        }
+      ],
+      "metadata_homepage": "https://sympy.org",
+      "project_urls": [
+        "Source, https://github.com/sympy/sympy"
+      ],
+      "bundled_runtime": false
+    },
+    {
+      "name": "tqdm",
+      "version": "4.70.1",
+      "declared_license": "MPL-2.0 AND MIT",
+      "license_classifiers": [],
+      "license_files": [
+        {
+          "file": "docs/licenses/python/tqdm-4.70.1/LICENCE",
+          "sha256": "fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de"
+        }
+      ],
+      "metadata_homepage": null,
+      "project_urls": [
+        "homepage, https://tqdm.github.io",
+        "repository, https://github.com/tqdm/tqdm",
+        "changelog, https://tqdm.github.io/releases",
+        "wiki, https://github.com/tqdm/tqdm/wiki"
+      ],
+      "bundled_runtime": false
+    }
+  ]
+}

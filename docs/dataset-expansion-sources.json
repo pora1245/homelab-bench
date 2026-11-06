@@ -1,0 +1,65 @@
+{
+  "audited_at": "2026-11-06",
+  "sources": [
+    {
+      "file": "docs/licenses/MMLU-Pro-dataset-card.md",
+      "url": "https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro/raw/b189ec765aa7ed75c8acfea42df31fdae71f97be/README.md",
+      "sha256": "4bd710f67da3fa359a33edce1b4b5816b3de416c823c2624ba5e89c2557d2a47",
+      "bytes": 11723
+    },
+    {
+      "file": "docs/licenses/MATH-500-H4-dataset-card.md",
+      "url": "https://huggingface.co/datasets/HuggingFaceH4/MATH-500/raw/6e4ed1a2a79af7d8630a6b768ec859cb5af4d3be/README.md",
+      "sha256": "5d32f78943f75423da61419c5bb98cee964d5a29183b11a5294f661fb96f69f7",
+      "bytes": 412
+    },
+    {
+      "file": "docs/licenses/PRM800K-MIT.txt",
+      "url": "https://raw.githubusercontent.com/openai/prm800k/main/LICENSE",
+      "sha256": "22d61a2226e035da51c56149c3358c36d1f61716435866bc6e6fe0e54c7270db",
+      "bytes": 1062
+    },
+    {
+      "file": "docs/licenses/MATH-MIT.txt",
+      "url": "https://raw.githubusercontent.com/hendrycks/math/main/LICENSE",
+      "sha256": "8f6401fb0b1fbfcac17aac8d61e4e1b0d2de9aa190d8aa655fedc5fd783b2ace",
+      "bytes": 1070
+    },
+    {
+      "file": "docs/licenses/PRM800K-README.md",
+      "url": "https://raw.githubusercontent.com/openai/prm800k/main/README.md",
+      "sha256": "a721d8d35cd77c128352acb3378dd32c223a41b5d0f6ca2e8b85fb4bfe88b5fe",
+      "bytes": 11718
+    },
+    {
+      "file": "docs/licenses/BBH-MIT.txt",
+      "url": "https://raw.githubusercontent.com/suzgunmirac/BIG-Bench-Hard/9ee07bd481feebf959a6b59d61ea57bdcf30964d/LICENSE",
+      "sha256": "4ef2ff4295d26ab6211235039c132697408cec5391d2c091b41e983771978db8",
+      "bytes": 1068
+    },
+    {
+      "file": "docs/licenses/BBH-README.md",
+      "url": "https://raw.githubusercontent.com/suzgunmirac/BIG-Bench-Hard/9ee07bd481feebf959a6b59d61ea57bdcf30964d/README.md",
+      "sha256": "9c41105f4a349fcba7f87a422df0e744a9ed8e7a30c2db6676a9ecad372bc9db",
+      "bytes": 3475
+    },
+    {
+      "file": "docs/licenses/BIG-bench-Apache-2.0.txt",
+      "url": "https://raw.githubusercontent.com/google/BIG-bench/main/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    },
+    {
+      "file": "docs/licenses/ARC-dataset-card.md",
+      "url": "https://huggingface.co/datasets/allenai/ai2_arc/raw/main/README.md",
+      "sha256": "4a293e352253d771604725c978adcea71ee6504e89ed40e1cb0024ecafa9b37e",
+      "bytes": 9001
+    },
+    {
+      "file": "docs/licenses/WinoGrande-README.md",
+      "url": "https://raw.githubusercontent.com/allenai/winogrande/master/README.md",
+      "sha256": "6dc5ec952a9e5d6e553e2800c24b43b1fa8add70d998e60b76262e2195413efe",
+      "bytes": 4563
+    }
+  ]
+}

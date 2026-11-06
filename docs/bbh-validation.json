@@ -1,0 +1,40 @@
+{
+  "source": "offline source contracts and Rust scorer fixture; no model calls",
+  "pack": {
+    "path": "datasets/bbh-cot-full-v1.json",
+    "sha256": "e705dc1d378f8ddaecae9e2ccd2296569f41ac99531ba45739491e17a4fec0e9",
+    "bytes": 24960601,
+    "count": 6511,
+    "gradable_count": 6506,
+    "quick_count": 54,
+    "quick_excluded_count": 0
+  },
+  "commands": [
+    {
+      "command": "python3 tests/bbh_contracts.py",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "command": "cargo test bbh_explicit_marker_exact_match_contract -- --nocapture",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "command": "cargo build --locked",
+      "exit_code": 0
+    },
+    {
+      "command": "python3 tests/integration.py",
+      "passed": 73,
+      "failed": 0,
+      "isolation": "temporary SQLite database and synthetic loopback model API"
+    }
+  ],
+  "published_outputs": {
+    "evaluated_outputs": 6511,
+    "same_subtask_accuracy": 27,
+    "prompt_matches": 6510,
+    "official_extractor_equivalence_proven": false
+  }
+}

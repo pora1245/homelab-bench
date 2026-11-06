@@ -1,0 +1,727 @@
+.bench-home {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-bottom: 28px;
+  --home-ink: #243542;
+  --home-muted: #71828c;
+  --home-line: #dce6e8;
+}
+.bench-home h1,
+.bench-home h2,
+.bench-home h3,
+.bench-home p {
+  margin: 0;
+}
+.bench-home .eyebrow {
+  display: block;
+  color: #687e7b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+}
+.bench-home .home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 10px 0 24px;
+}
+.bench-home .home-header h1 {
+  margin-top: 7px;
+  font-size: 27px;
+  letter-spacing: -0.04em;
+}
+.bench-home .home-header p {
+  margin-top: 5px;
+  color: var(--home-muted);
+  font-size: 13px;
+}
+.bench-home .home-run-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  border: 1px solid var(--home-line);
+  border-radius: 12px;
+  padding: 13px 16px;
+  background: #fff;
+  min-width: 0;
+}
+.bench-home .home-run-icon {
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  flex-shrink: 0;
+  color: #397d70;
+  background: #eef6f3;
+  border-radius: 10px;
+}
+.bench-home .home-run-line > div:nth-child(2) {
+  min-width: 0;
+}
+.bench-home .home-run-line strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.bench-home .home-run-line span {
+  display: block;
+  font-size: 11px;
+  color: var(--home-muted);
+  overflow-wrap: anywhere;
+}
+.bench-home .home-run-meta {
+  margin-left: auto;
+  text-align: right;
+  flex-shrink: 0;
+}
+.bench-home .home-run-meta small {
+  font-size: 10px;
+  color: #58706b;
+  white-space: nowrap;
+}
+.bench-home .home-score-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.bench-home .home-score {
+  --score-color: #437f72;
+  background: #fff;
+  border: 1px solid var(--home-line);
+  border-top: 3px solid var(--score-color);
+  border-radius: 14px;
+  padding: 22px 22px 17px;
+  min-width: 0;
+}
+.bench-home .home-score-overview {
+  --score-color: #327967;
+  background: linear-gradient(145deg, #f2f8f4, #fff 80%);
+}
+.bench-home .home-score-intelligence {
+  --score-color: #6089b1;
+}
+.bench-home .home-score-performance {
+  --score-color: #bf9553;
+}
+.bench-home .home-score-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 700;
+}
+.bench-home .home-score-value {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 15px 0 8px;
+  font-size: clamp(27px, 3.2vw, 41px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bench-home .home-score-value small {
+  font-size: 12px;
+  letter-spacing: 0;
+  color: #8a999f;
+  font-weight: 500;
+}
+.bench-home .home-score-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #687b7d;
+}
+.bench-home .home-score-status i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #9aa9ab;
+}
+.bench-home .home-score-status i.complete {
+  background: #4c9683;
+}
+.bench-home .home-score-status i.partial,
+.bench-home .home-score-status i.provisional {
+  background: #b4915f;
+}
+.bench-home .home-score-scale {
+  position: relative;
+  height: 6px;
+  margin: 18px 0 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #edf2f3;
+}
+.bench-home .home-score-scale i {
+  position: absolute;
+  display: block;
+  height: 100%;
+}
+.bench-home .home-score-scale .known {
+  left: 0;
+  background: var(--score-color);
+}
+.bench-home .home-score-scale .unmeasured {
+  background: repeating-linear-gradient(
+    120deg,
+    #e4eae8 0,
+    #e4eae8 3px,
+    #cbd8d3 3px,
+    #cbd8d3 5px
+  );
+}
+.bench-home .home-score > p {
+  min-height: 37px;
+  color: var(--home-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.bench-home .home-report-link {
+  width: 100%;
+  padding: 10px 0 0;
+  min-height: 30px;
+  margin-top: 10px;
+  border: 0;
+  border-top: 1px solid #e9eeee;
+  border-radius: 0;
+  justify-content: space-between;
+  color: #547069;
+  background: transparent;
+  font-size: 11px;
+}
+.bench-home .home-report-link:hover {
+  color: #1c6956;
+}
+.bench-home .home-policy-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin: 12px 2px 25px;
+  font-size: 10px;
+  color: #7e8c92;
+}
+.bench-home .home-policy-line > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #617673;
+}
+.bench-home .home-policy-line > span:last-child {
+  margin-left: auto;
+}
+.bench-home .home-progress-label {
+  color: #a07d3d;
+}
+.bench-home .home-insight-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 20px;
+  align-items: stretch;
+}
+.bench-home .home-evidence,
+.bench-home .home-experience {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--home-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.bench-home .home-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bench-home .home-section-title h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+.bench-home .home-section-title h2 svg {
+  color: #587c73;
+  flex-shrink: 0;
+}
+.bench-home .home-section-title > span {
+  color: #8b989d;
+  font-size: 10px;
+}
+.bench-home .home-measured-result {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 19px 0 17px;
+  margin: 3px 0 5px;
+  border-bottom: 1px solid #e8eeef;
+}
+.bench-home .home-measured-result > div {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.bench-home .home-measured-result span {
+  font-size: 11px;
+  color: #6b817a;
+}
+.bench-home .home-measured-result strong {
+  font-size: 26px;
+  font-weight: 700;
+  color: #397e6b;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.bench-home .home-measured-result small {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #82938c;
+  font-weight: 500;
+}
+.bench-home .home-measured-result p {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #8c989b;
+}
+.bench-home .home-benchmark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  min-height: 37px;
+  padding: 7px 0;
+  border-bottom: 1px solid #eff3f3;
+}
+.bench-home .home-benchmark-row > div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+}
+.bench-home .home-benchmark-row > div > span {
+  overflow-wrap: anywhere;
+}
+.bench-home .home-benchmark-row > span {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.bench-home .home-benchmark-row .measured {
+  color: #397e6b;
+}
+.bench-home .home-benchmark-row .missing {
+  color: #9aa7ab;
+}
+.bench-home .home-reference-note {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #8e9b9f;
+}
+.bench-home .home-fill-button {
+  width: 100%;
+  margin-top: 17px;
+  min-height: 36px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-color: #d4e4dd;
+  background: #f4f9f6;
+  color: #347760;
+  font-size: 11px;
+}
+.bench-home .home-experience {
+  display: flex;
+  flex-direction: column;
+}
+.bench-home .home-timing {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 25px 0 19px;
+}
+.bench-home .home-timing > div + div {
+  border-left: 1px solid #e6ecee;
+  padding-left: 20px;
+}
+.bench-home .home-timing span {
+  font-size: 11px;
+  color: #75858b;
+}
+.bench-home .home-timing strong {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 27px;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.bench-home .home-timing small {
+  font-size: 11px;
+  margin-left: 4px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: #8c989e;
+}
+.bench-home .home-timing p {
+  color: #8d9aa0;
+  font-size: 10px;
+}
+.bench-home .home-experience-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border-radius: 10px;
+  background: #f4f7f7;
+}
+.bench-home .home-experience-summary svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #79928a;
+}
+.bench-home .home-experience-summary p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #71817e;
+}
+.bench-home .home-next {
+  border-top: 1px solid #e6eded;
+  padding-top: 20px;
+  margin-top: 23px;
+}
+.bench-home .home-next > span {
+  font-size: 10px;
+  color: #8a9d93;
+}
+.bench-home .home-next h3 {
+  margin: 7px 0;
+  font-size: 15px;
+  letter-spacing: -0.03em;
+}
+.bench-home .home-next p {
+  font-size: 11px;
+  color: #80908c;
+  line-height: 1.75;
+}
+.bench-home .home-next button {
+  width: 100%;
+  margin-top: 17px;
+  font-size: 11px;
+  padding: 9px 12px;
+  justify-content: flex-start;
+}
+.bench-home .home-next button svg:last-child {
+  margin-left: auto;
+}
+.bench-home .home-guidance {
+  margin-top: 27px;
+}
+.bench-home .home-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 15px;
+  margin-top: 13px;
+}
+.bench-home .home-guide {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid var(--home-line);
+  padding: 20px;
+  border-radius: 12px;
+}
+.bench-home .home-guide-number {
+  display: inline-block;
+  color: #91a89e;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  margin-bottom: 13px;
+}
+.bench-home .home-guide h3 {
+  font-size: 13px;
+  letter-spacing: -0.025em;
+  line-height: 1.5;
+}
+.bench-home .home-guide p {
+  font-size: 11px;
+  color: #86918f;
+  line-height: 1.7;
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+}
+.bench-home .home-guide p.home-guide-evidence {
+  color: #627970;
+}
+.bench-home .home-formula {
+  margin-top: 22px;
+  font-size: 11px;
+  color: #7b8b87;
+}
+.bench-home .home-formula summary {
+  cursor: pointer;
+  width: fit-content;
+  padding: 8px 0;
+}
+.bench-home .home-formula > div {
+  background: #eef3f1;
+  padding: 15px 18px;
+  border-radius: 10px;
+}
+.bench-home .home-formula p {
+  margin: 8px 0;
+  line-height: 1.8;
+}
+.bench-home .home-formula .home-formula-id {
+  font-size: 10px;
+  color: #92a29b;
+}
+.bench-home.home-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 340px;
+  color: #7b8d86;
+}
+.bench-home .home-loading-dot {
+  width: 8px;
+  height: 8px;
+  background: #66a08b;
+  border-radius: 50%;
+}
+.bench-home.home-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 80px 20px;
+}
+.bench-home .home-welcome-mark {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  margin-bottom: 26px;
+  color: #4b8875;
+  background: #e8f2ed;
+}
+.bench-home.home-welcome h1 {
+  margin: 12px 0;
+  font-size: 29px;
+}
+.bench-home.home-welcome > p {
+  color: #82928a;
+  font-size: 13px;
+  line-height: 1.9;
+}
+.bench-home.home-welcome > button {
+  margin-top: 25px;
+  padding: 10px 22px;
+}
+.bench-home .home-welcome-steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 30px;
+  font-size: 11px;
+  color: #90a199;
+}
+.bench-home .home-welcome-steps span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+@media (max-width: 1150px) {
+  .bench-home .home-score {
+    padding: 19px 17px 15px;
+  }
+  .bench-home .home-score-grid {
+    gap: 12px;
+  }
+  .bench-home .home-score-value {
+    font-size: 30px;
+  }
+  .bench-home .home-evidence,
+  .bench-home .home-experience {
+    padding: 18px;
+  }
+  .bench-home .home-measured-result {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bench-home .home-insight-grid {
+    gap: 14px;
+  }
+  .bench-home .home-benchmark-row {
+    gap: 7px;
+  }
+  .bench-home .home-benchmark-row > div {
+    font-size: 10px;
+  }
+}
+@media (max-width: 820px) {
+  .bench-home .home-insight-grid {
+    grid-template-columns: 1fr;
+  }
+  .bench-home .home-measured-result {
+    flex-direction: row;
+    align-items: center;
+    gap: 20px;
+  }
+  .bench-home .home-guide-grid {
+    grid-template-columns: 1fr;
+  }
+  .bench-home .home-guide {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    padding: 17px;
+    gap: 0 5px;
+  }
+  .bench-home .home-guide-number {
+    grid-row: 1 / 4;
+    margin: 3px 0 0;
+  }
+  .bench-home .home-guide p {
+    margin-top: 5px;
+  }
+  .bench-home .home-benchmark-row > div {
+    font-size: 11px;
+  }
+  .bench-home .home-policy-line > span:last-child {
+    margin-left: 0;
+  }
+}
+@media (max-width: 580px) {
+  .bench-home .home-header {
+    margin: 3px 0 18px;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .bench-home .home-header h1 {
+    font-size: 23px;
+  }
+  .bench-home .home-header p {
+    font-size: 11px;
+  }
+  .bench-home .home-header > button {
+    margin-top: 22px;
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+  .bench-home .home-run-line {
+    flex-wrap: wrap;
+    gap: 9px;
+    padding: 12px;
+  }
+  .bench-home .home-run-line > div:nth-child(2) {
+    width: calc(100% - 49px);
+  }
+  .bench-home .home-run-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #edf1ef;
+  }
+  .bench-home .home-run-meta small {
+    font-size: 10px;
+  }
+  .bench-home .home-score-grid {
+    grid-template-columns: 1fr;
+    gap: 11px;
+  }
+  .bench-home .home-score {
+    position: relative;
+    padding: 16px 18px 12px;
+  }
+  .bench-home .home-score-value {
+    font-size: 35px;
+    margin-top: 11px;
+  }
+  .bench-home .home-score-status {
+    position: absolute;
+    top: 20px;
+    right: 50px;
+  }
+  .bench-home .home-score-scale {
+    margin-top: 13px;
+  }
+  .bench-home .home-score > p {
+    min-height: 0;
+  }
+  .bench-home .home-report-link {
+    margin-top: 12px;
+  }
+  .bench-home .home-measured-result {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .bench-home .home-benchmark-row {
+    align-items: flex-start;
+    padding: 9px 0;
+    gap: 7px;
+  }
+  .bench-home .home-benchmark-row > div {
+    font-size: 10px;
+  }
+  .bench-home .home-benchmark-row > span {
+    padding-top: 1px;
+    font-size: 10px;
+  }
+  .bench-home .home-section-title h2 {
+    font-size: 13px;
+  }
+  .bench-home .home-section-title > span {
+    font-size: 9px;
+  }
+  .bench-home .home-timing {
+    gap: 12px;
+  }
+  .bench-home .home-timing > div + div {
+    padding-left: 12px;
+  }
+  .bench-home .home-timing strong {
+    font-size: 25px;
+  }
+  .bench-home .home-timing small {
+    font-size: 10px;
+  }
+  .bench-home.home-welcome {
+    padding: 55px 5px;
+  }
+  .bench-home.home-welcome h1 {
+    font-size: 25px;
+  }
+}
+
+.bench-home .home-score-baseline { display:flex;align-items:center;min-height:22px;margin-top:12px;font-size:11px;color:var(--home-muted); }
+.bench-home .home-score-value { font-size:clamp(24px,2.8vw,38px);flex-wrap:wrap;overflow-wrap:anywhere;white-space:normal; }
+.bench-home .home-usability { margin-top:20px;padding:15px 17px;background:#eef6f2;border-radius:10px; }
+.bench-home .home-usability strong { display:block;color:#346c5e;font-size:15px; }
+.bench-home .home-usability p { margin-top:5px;font-size:12px;line-height:1.7;color:var(--home-muted); }
+.bench-home .home-formula h3 { margin:20px 0 9px;font-size:13px; }
+.bench-home .home-formula li { margin:5px 0;overflow-wrap:anywhere; }
+.bench-home .home-comparison-key { font-family:monospace;overflow-wrap:anywhere; }
+.bench-home .home-legacy-values { display:flex;gap:16px 26px;flex-wrap:wrap; }
+.bench-home .home-legacy { margin-top:12px; }
+
+.home-frontier-cases { display: grid; gap: 8px; margin: 18px 0 10px; }
+.home-frontier-cases > div { display: grid; grid-template-columns: minmax(44px, 1fr) minmax(72px, 1fr) minmax(58px, 1fr) 40px; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border, #dce5e8); font-size: 13px; }
+.home-frontier-cases span { text-align: right; font-variant-numeric: tabular-nums; }
+.home-frontier-cases small { text-align: right; color: #7c8d98; }
