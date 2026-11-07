@@ -63,11 +63,29 @@ fn admission_indices(r: &Run, active_jobs: usize) -> Vec<usize> {
     }) {
         return Vec::new();
     }
+    // The optional temporary cap changes admission, never saved questions.
+    let mut occupied = std::collections::BTreeMap::<&str, usize>::new();
+    for item in &r.items {
+        if ["done", "error", "running", "grading"].contains(&item.status.as_str()) {
+            *occupied.entry(&item.task.subject).or_default() += 1;
+        }
+    }
     let pending = r
         .items
         .iter()
         .enumerate()
         .filter(|(_, i)| i.status == "pending")
+        .filter(|(_, i)| {
+            let Some(limit) = r.config.subject_item_limit else {
+                return true;
+            };
+            let count = occupied.entry(&i.task.subject).or_default();
+            if *count >= limit {
+                return false;
+            }
+            *count += 1;
+            true
+        })
         .collect::<Vec<_>>();
     if let Some((index, _)) = pending
         .iter()
@@ -75,7 +93,8 @@ fn admission_indices(r: &Run, active_jobs: usize) -> Vec<usize> {
         .min_by_key(|(index, i)| {
             let warmup = i.task.meta["warmup"] == true || i.task.id == "experience:warmup:0";
             (!warmup, *index)
-        }) {
+        })
+    {
         return if active_jobs == 0 {
             vec![*index]
         } else {
@@ -89,7 +108,9 @@ fn admission_indices(r: &Run, active_jobs: usize) -> Vec<usize> {
         .collect()
 }
 async fn drive(s: App, id: String) -> anyhow::Result<()> {
-    if !crate::auto_concurrency::drive(&s, &id).await? { return Ok(()); }
+    if !crate::auto_concurrency::drive(&s, &id).await? {
+        return Ok(());
+    }
     let mut jobs = JoinSet::new();
     let grading = s.runs.lock().await[&id]
         .items
@@ -106,10 +127,43 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
     let mut sensor_tick = Instant::now();
     let mut clock_tick = Instant::now();
     let mut checkpoint_tick = Instant::now();
+    let mut guard_tick = Instant::now();
+    let mut rollback = None;
     let segment = Instant::now();
     let original_ms = s.runs.lock().await[&id].active_ms;
     let mut telemetry_job: Option<tokio::task::JoinHandle<Value>> = None;
     loop {
+        if rollback.is_none() && guard_tick.elapsed() >= Duration::from_secs(5) {
+            rollback = crate::concurrency_guard::evaluate(&s.runs.lock().await[&id]);
+            guard_tick = Instant::now();
+        }
+        if rollback.is_some() && jobs.is_empty() {
+            let decision = rollback.take().unwrap();
+            let previous = {
+                let runs = s.runs.lock().await;
+                let r = &runs[&id];
+                (
+                    r.config.clone(),
+                    r.execution_segments.clone(),
+                    r.concurrency_tuning.clone(),
+                )
+            };
+            if let Err(error) = s
+                .checkpoint(&id, |r| {
+                    crate::concurrency_guard::apply(r, &decision);
+                })
+                .await
+            {
+                s.update_progress(&id, |r| {
+                    r.config = previous.0;
+                    r.execution_segments = previous.1;
+                    r.concurrency_tuning = previous.2;
+                })
+                .await?;
+                return Err(error);
+            }
+            let _ = s.events.send(id.clone());
+        }
         if checkpoint_tick.elapsed() >= Duration::from_secs(5) {
             s.checkpoint(&id, |_| {}).await?;
             checkpoint_tick = Instant::now();
@@ -127,7 +181,11 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
             (
                 r.status.clone(),
                 r.config.clone(),
-                admission_indices(r, jobs.len()),
+                if rollback.is_some() {
+                    Vec::new()
+                } else {
+                    admission_indices(r, jobs.len())
+                },
             )
         };
         if status == "cancelling" {
@@ -300,7 +358,13 @@ async fn finish_grading(s: App, id: String, index: usize) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub(crate) async fn evaluate(s: &App, id: &str, config: &Config, task: &Task, output: &str) -> Score {
+pub(crate) async fn evaluate(
+    s: &App,
+    id: &str,
+    config: &Config,
+    task: &Task,
+    output: &str,
+) -> Score {
     if task.scorer == "judge" {
         let key = s
             .judge_keys
@@ -561,6 +625,26 @@ mod admission_tests {
         serde_json::from_value(json!({"id":"fixture","created_at":now(),"config":{"name":"fixture","base_url":"http://localhost:1/v1","model":"fixture","pack_id":"fixture","profile":"full","temperature":0,"max_tokens":32,"concurrency":4,"timeout_s":5},"status":"running","suite_hash":"fixture","protocol_version":"fixture","pack_version":"fixture","provenance":"fixture","items":items,"telemetry":[],"active_ms":0,"error":null})).unwrap()
     }
     #[test]
+    fn subject_cap_counts_finished_and_inflight_without_deleting_tasks() {
+        let mut r = run();
+        for item in &mut r.items {
+            item.task.scorer = "exact".into();
+        }
+        r.config.subject_item_limit = Some(2);
+        assert_eq!(admission_indices(&r, 0), vec![0, 1]);
+        r.items[0].status = "done".into();
+        r.items[1].status = "running".into();
+        assert!(admission_indices(&r, 1).is_empty());
+        r.items[1].status = "done".into();
+        assert!(admission_indices(&r, 0).is_empty());
+        r.items[2].task.subject = "other".into();
+        assert_eq!(admission_indices(&r, 0), vec![2]);
+        assert_eq!(r.items.len(), 4);
+        assert_eq!(r.items[3].status, "pending");
+        r.config.subject_item_limit = None;
+        assert_eq!(admission_indices(&r, 0), vec![2, 3]);
+    }
+    #[test]
     fn experience_runs_first_after_quality_requests_and_grading_drain() {
         let mut r = run();
         assert_eq!(admission_indices(&r, 0), vec![2]);
@@ -590,8 +674,8 @@ mod admission_tests {
                 item
             })
             .collect();
-        let pack: Pack = serde_json::from_str(include_str!("../datasets/api-experience-v1.json"))
-            .unwrap();
+        let pack: Pack =
+            serde_json::from_str(include_str!("../datasets/api-experience-v1.json")).unwrap();
         r.items.extend(pack.tasks.into_iter().map(|task| Item {
             task,
             status: "pending".into(),
@@ -604,10 +688,8 @@ mod admission_tests {
     fn existing_thirteen_items_run_serially_then_restore_c1_or_c8_quality() {
         for concurrency in [1, 8] {
             let mut r = run_with_performance(concurrency);
-            let tasks_before = serde_json::to_value(
-                r.items.iter().map(|i| &i.task).collect::<Vec<_>>(),
-            )
-            .unwrap();
+            let tasks_before =
+                serde_json::to_value(r.items.iter().map(|i| &i.task).collect::<Vec<_>>()).unwrap();
             let hash_before = r.suite_hash.clone();
             assert_eq!(r.items[10].task.id, "experience:warmup:0");
             assert_eq!(r.items.len(), 23);
@@ -621,12 +703,14 @@ mod admission_tests {
                 assert!(admission_indices(&r, 1).is_empty());
                 r.items[index].status = "done".into();
             }
-            assert_eq!(admission_indices(&r, 0), (0..concurrency).collect::<Vec<_>>());
+            assert_eq!(
+                admission_indices(&r, 0),
+                (0..concurrency).collect::<Vec<_>>()
+            );
             assert_eq!(r.config.concurrency, concurrency);
             assert_eq!(r.suite_hash, hash_before);
             assert_eq!(
-                serde_json::to_value(r.items.iter().map(|i| &i.task).collect::<Vec<_>>())
-                    .unwrap(),
+                serde_json::to_value(r.items.iter().map(|i| &i.task).collect::<Vec<_>>()).unwrap(),
                 tasks_before,
             );
         }

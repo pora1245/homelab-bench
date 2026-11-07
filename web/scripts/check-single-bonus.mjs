@@ -35,4 +35,15 @@ check('mismatched calibration cannot supply a base',()=>{const r=run();r.items=[
 check('single timing integrity exclusions remain enforced',()=>{const r=run();for(const i of r.items)i.attempts[0].metric_quality={version:'metric-integrity-v1',valid:{ttft_ms:true,client_visible_decode_tps:false}};assert.equal(assessRun(r,ref).performance.value,null);});
 check('a faster unselected candidate is never silently chosen',()=>{const r=run();r.concurrency_tuning=tuning();r.concurrency_tuning.rounds.push(tuning(8).rounds[1]);assert.equal(assessRun(r,ref).performance.value,1100);});
 check('records, snapshots and source reference are immutable',()=>{const r=run();r.concurrency_tuning=tuning();const before=JSON.stringify(r);assessRun(r,ref);assessConcurrencyBonus(r);assert.equal(JSON.stringify(r),before);assert.equal(readFileSync('src/frontier-reference.json','utf8'),referenceText);});
+function tuningV2() {
+  const t=tuning(); t.version='auto-concurrency-v2'; t.incumbent_concurrency=1;
+  for(const r of t.rounds) {r.inference_ms=r.elapsed_ms;r.overhead_ms=9000;r.elapsed_ms+=9000;r.ended_at=iso(Date.parse(r.ended_at)-epoch+9000);}
+  t.rounds.push(...structuredClone(t.rounds), ...structuredClone(t.rounds));
+  return t;
+}
+check('v2 API interval union excludes storage-only gaps',()=>{const r=run();r.concurrency_tuning=tuningV2();assert.equal(assessConcurrencyBonus(r).bonusState,'measured');assert.equal(assessRun(r,ref).performance.value,1100);});
+check('v2 incomplete repeated evidence earns no bonus',()=>{const r=run();r.concurrency_tuning=tuningV2();r.concurrency_tuning.rounds=r.concurrency_tuning.rounds.slice(0,2);assert.equal(assessConcurrencyBonus(r).bonusState,'invalid');});
+check('v2 forged inference interval is not rewarded',()=>{const r=run();r.concurrency_tuning=tuningV2();r.concurrency_tuning.rounds[1].inference_ms/=2;assert.equal(assessConcurrencyBonus(r).bonusState,'invalid');});
+check('v2 overhead is independently checked',()=>{const r=run();r.concurrency_tuning=tuningV2();r.concurrency_tuning.rounds[1].overhead_ms=0;assert.equal(assessConcurrencyBonus(r).bonusState,'invalid');});
+check('rollback cannot retain a concurrency bonus',()=>{const r=run();r.concurrency_tuning=tuningV2();r.concurrency_tuning.status='unavailable';r.concurrency_tuning.selected_round_index=null;r.concurrency_tuning.throughput_gain=null;assert.equal(assessRun(r,ref).performance.value,1000);assert.equal(assessConcurrencyBonus(r).bonusState,'invalid');});
 console.log(`${count} single-base/parallel-bonus v5 contracts passed; no inference executed.`);

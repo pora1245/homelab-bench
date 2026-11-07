@@ -1,7 +1,8 @@
-mod provider;
 mod auto_concurrency;
+mod concurrency_guard;
 mod metrics_quality;
 mod preflight;
+mod provider;
 mod report;
 mod runtime;
 mod scoring;
@@ -584,7 +585,9 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
     let mut active = s.active.lock().await;
     let id = uuid::Uuid::new_v4().to_string();
     let initial_concurrency = Some(c.concurrency);
-    let concurrency_tuning = c.auto_concurrency.then(|| auto_concurrency::Tuning::new(&c, &tasks));
+    let concurrency_tuning = c
+        .auto_concurrency
+        .then(|| auto_concurrency::Tuning::new(&c, &tasks));
     let run = Run {
         id: id.clone(),
         created_at: now(),
@@ -651,39 +654,84 @@ async fn control(
     let mut active = s.active.lock().await;
     let mut runs = s.runs.lock().await;
     let r = runs.get_mut(&id).ok_or_else(|| bad("실행 없음"))?;
+    if action == "subject-limit" {
+        if active.contains(&id) || r.status != "paused" {
+            return Err(bad("현재 문항이 끝나도록 일시정지한 뒤 과목별 제한을 설정하세요."));
+        }
+        let limit = if body.get("limit").is_some_and(Value::is_null) { None } else {
+            Some(body["limit"].as_u64().filter(|n| (1..=100_000).contains(n))
+                .ok_or_else(|| bad("limit는 1~100000 또는 null입니다."))? as usize)
+        };
+        let old = r.config.subject_item_limit;
+        r.config.subject_item_limit = limit;
+        if let Err(e) = storage::save(&s, r, false).await { r.config.subject_item_limit = old; return Err(bad(e)); }
+        return Ok(Json(json!({"ok":true,"subject_item_limit":limit})));
+    }
     if action == "auto-concurrency" {
         if active.contains(&id) || r.status != "paused" {
-            return Err(bad("현재 문항이 끝나도록 일시정지한 뒤 자동 동시 요청을 설정하세요."));
+            return Err(bad(
+                "현재 문항이 끝나도록 일시정지한 뒤 자동 동시 요청을 설정하세요.",
+            ));
         }
-        let enabled = body["enabled"].as_bool().ok_or_else(|| bad("enabled를 지정하세요."))?;
+        let enabled = body["enabled"]
+            .as_bool()
+            .ok_or_else(|| bad("enabled를 지정하세요."))?;
         let old = r.clone();
         if enabled {
-            let max = body["max_concurrency"].as_u64().filter(|n| (1..=8).contains(n))
-                .ok_or_else(|| bad("최대 동시 요청 수는 1~8입니다."))? as usize;
-            if r.concurrency_tuning.as_ref().is_some_and(|t| t.finished()) && body["remeasure"] != true {
-                return Err(bad("측정 결과가 이미 있습니다. 다시 측정하려면 remeasure: true를 지정하세요."));
+            let max = body["max_concurrency"]
+                .as_u64()
+                .filter(|n| (1..=8).contains(n))
+                .ok_or_else(|| bad("최대 동시 요청 수는 1~8입니다."))?
+                as usize;
+            if r.concurrency_tuning.as_ref().is_some_and(|t| t.finished())
+                && body["remeasure"] != true
+            {
+                return Err(bad(
+                    "측정 결과가 이미 있습니다. 다시 측정하려면 remeasure: true를 지정하세요.",
+                ));
             }
-            if r.concurrency_tuning.as_ref().is_some_and(|t| !t.finished() && t.max_concurrency != max) && body["remeasure"] != true {
-                return Err(bad("진행 중인 측정의 상한을 바꾸려면 remeasure: true를 지정하세요."));
+            if r.concurrency_tuning
+                .as_ref()
+                .is_some_and(|t| !t.finished() && t.max_concurrency != max)
+                && body["remeasure"] != true
+            {
+                return Err(bad(
+                    "진행 중인 측정의 상한을 바꾸려면 remeasure: true를 지정하세요.",
+                ));
             }
             r.initial_concurrency.get_or_insert(r.config.concurrency);
             r.config.auto_concurrency = true;
             if r.concurrency_tuning.is_none() || body["remeasure"] == true {
-                let mut config = r.config.clone(); config.concurrency = max;
+                let mut config = r.config.clone();
+                config.concurrency = max;
                 let mut next = auto_concurrency::Tuning::for_existing(&config, &r.items);
-                if let Some(previous) = r.concurrency_tuning.take() { next.previous_measurements.push(previous); }
+                next.retain_incumbent(r.config.concurrency);
+                if let Some(previous) = r.concurrency_tuning.take() {
+                    next.previous_measurements.push(previous);
+                }
                 r.concurrency_tuning = Some(next);
             }
-        } else { r.config.auto_concurrency = false; }
-        if let Err(e) = storage::save(&s, r, false).await { *r = old; return Err(bad(e)); }
+        } else {
+            r.config.auto_concurrency = false;
+        }
+        if let Err(e) = storage::save(&s, r, false).await {
+            *r = old;
+            return Err(bad(e));
+        }
         let _ = s.events.send(id.clone());
-        return Ok(Json(json!({"ok":true,"auto_concurrency":r.config.auto_concurrency,"concurrency_tuning":r.concurrency_tuning.as_ref().map(|t| t.public(false,true))})));
+        return Ok(Json(
+            json!({"ok":true,"auto_concurrency":r.config.auto_concurrency,"concurrency_tuning":r.concurrency_tuning.as_ref().map(|t| t.public(false,true))}),
+        ));
     }
     if action == "concurrency" {
         if active.contains(&id) || r.status != "paused" {
-            return Err(bad("현재 문항이 끝나도록 일시정지한 뒤 동시 요청 수를 변경하세요."));
+            return Err(bad(
+                "현재 문항이 끝나도록 일시정지한 뒤 동시 요청 수를 변경하세요.",
+            ));
         }
-        let n = body["concurrency"].as_u64().filter(|n| (1..=8).contains(n))
+        let n = body["concurrency"]
+            .as_u64()
+            .filter(|n| (1..=8).contains(n))
             .ok_or_else(|| bad("동시 요청 수는 1~8입니다."))? as usize;
         if n != r.config.concurrency || r.config.auto_concurrency {
             let old = r.clone();
@@ -692,14 +740,23 @@ async fn control(
             if r.execution_segments.is_empty() {
                 r.execution_segments.push(json!({"started_at":r.created_at,"concurrency":r.config.concurrency,"completed_before":0,"reason":"initial"}));
             }
-            let completed = r.items.iter().filter(|i| ["done","error"].contains(&i.status.as_str())).count();
+            let completed = r
+                .items
+                .iter()
+                .filter(|i| ["done", "error"].contains(&i.status.as_str()))
+                .count();
             r.execution_segments.push(json!({"started_at":now(),"concurrency":n,"completed_before":completed,"reason":"user_change"}));
             r.config.concurrency = n;
             // A settings-only change must not reserialize existing answer or
             // metric rows (including their original floating-point text).
-            if let Err(error) = storage::save(&s, r, false).await { *r=old; return Err(bad(error)); }
+            if let Err(error) = storage::save(&s, r, false).await {
+                *r = old;
+                return Err(bad(error));
+            }
         }
-        return Ok(Json(json!({"ok":true,"concurrency":r.config.concurrency,"execution_segments":r.execution_segments})));
+        return Ok(Json(
+            json!({"ok":true,"concurrency":r.config.concurrency,"execution_segments":r.execution_segments}),
+        ));
     }
     if action == "rescore"
         && !active.contains(&id)
@@ -767,7 +824,14 @@ async fn control(
             }
             r.status = "running".into();
             r.error = None;
-            if !changed.is_empty() { s.dirty.lock().await.entry(id.clone()).or_default().extend(changed); }
+            if !changed.is_empty() {
+                s.dirty
+                    .lock()
+                    .await
+                    .entry(id.clone())
+                    .or_default()
+                    .extend(changed);
+            }
             if let Err(error) = storage::save(&s, r, false).await {
                 r.status = previous_status;
                 r.error = previous_error;
@@ -775,8 +839,11 @@ async fn control(
                     item.status = status;
                 }
                 let mut dirty = s.dirty.lock().await;
-                if let Some(previous_dirty) = previous_dirty { dirty.insert(id.clone(), previous_dirty); }
-                else { dirty.remove(&id); }
+                if let Some(previous_dirty) = previous_dirty {
+                    dirty.insert(id.clone(), previous_dirty);
+                } else {
+                    dirty.remove(&id);
+                }
                 return Err(bad(error));
             }
             active.insert(id.clone());

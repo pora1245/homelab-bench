@@ -1207,13 +1207,13 @@ function requestConcurrencyV5(run: Data, attempt: Data): number | null {
 const tuningSettingsKeys = ["base_url", "model", "api_format", "temperature", "max_tokens", "reasoning_effort", "reasoning_parameters", "execution_info"] as const;
 function tuningSettingsMatch(run: Data): boolean {
   const t = run.concurrency_tuning, snapshot = t?.settings_snapshot;
-  return t?.version === "auto-concurrency-v1" && /^[a-f0-9]{64}$/.test(t.settings_fingerprint || "") &&
+  return ["auto-concurrency-v1", "auto-concurrency-v2"].includes(t?.version) && /^[a-f0-9]{64}$/.test(t.settings_fingerprint || "") &&
     snapshot && tuningSettingsKeys.every((key) => Object.hasOwn(snapshot, key) &&
       stable(snapshot[key] ?? null) === stable(run.config?.[key] ?? null));
 }
 
 /** Recheck the saved selected round, not a faster-looking subset or a new winner. */
-function verifiedTuningRound(run: Data, index: unknown, requireScored = true): { round: Data; samples: Data[]; throughput: number } | null {
+function verifiedTuningRound(run: Data, index: unknown, requireScored = true): { round: Data; samples: Data[]; throughput: number; measuredMs: number } | null {
   const t = run.concurrency_tuning;
   if (!tuningSettingsMatch(run) || !Number.isInteger(index) || (index as number) < 0) return null;
   const r = t.rounds?.[index as number], ids = t.sample_ids;
@@ -1225,6 +1225,7 @@ function verifiedTuningRound(run: Data, index: unknown, requireScored = true): {
   if (!finite(roundStart) || !finite(roundEnd) || roundEnd <= roundStart || r.elapsed_ms > roundEnd - roundStart + 100) return null;
   const rows = new Map<string, Data>();
   let tokens = 0, sumWall = 0, maxWall = 0;
+  const intervals: [number, number][] = [];
   for (const s of r.samples) {
     const a = s.attempt, m = a?.metrics;
     if (!ids.includes(s.task_id) || rows.has(s.task_id) || !/^[a-f0-9]{64}$/.test(s.prompt_sha256 || "") ||
@@ -1240,14 +1241,24 @@ function verifiedTuningRound(run: Data, index: unknown, requireScored = true): {
     const start = requestStamp(a.started_at), end = requestStamp(a.ended_at);
     if (!finite(start) || !finite(end) || start < roundStart - 100 || end > roundEnd + 100 || end <= start ||
         Math.abs(end - start - m.wall_ms) > Math.max(100, m.wall_ms * .01)) return null;
+    intervals.push([start, end]);
     tokens += m.output_tokens; sumWall += m.wall_ms; maxWall = Math.max(maxWall, m.wall_ms);
     rows.set(s.task_id, s);
   }
   if (!Number.isSafeInteger(tokens) || !finite(sumWall) || r.elapsed_ms + 100 < Math.max(maxWall, sumWall / r.concurrency)) return null;
-  const throughput = tokens * 1000 / r.elapsed_ms;
+  let measuredMs = r.elapsed_ms;
+  if (t.version === "auto-concurrency-v2") {
+    intervals.sort((a, b) => a[0] - b[0]);
+    let union = 0, end = -Infinity;
+    for (const [start, stop] of intervals) { union += Math.max(0, stop - Math.max(start, end)); end = Math.max(end, stop); }
+    if (!finite(r.inference_ms) || r.inference_ms <= 0 || Math.abs(r.inference_ms - union) > Math.max(100, union * .01) ||
+        !finite(r.overhead_ms) || r.overhead_ms < 0 || Math.abs(r.overhead_ms - Math.max(0, r.elapsed_ms - union)) > Math.max(100, r.elapsed_ms * .01)) return null;
+    measuredMs = union;
+  }
+  const throughput = tokens * 1000 / measuredMs;
   if (!finite(throughput) || throughput <= 0 || (r.throughput_tps != null &&
       (!finite(r.throughput_tps) || Math.abs(r.throughput_tps - throughput) > Math.max(.01, throughput * .01)))) return null;
-  return { round: r, samples: ids.map((id: string) => rows.get(id)!), throughput };
+  return { round: r, samples: ids.map((id: string) => rows.get(id)!), throughput, measuredMs };
 }
 
 type BonusEvidence = Pick<PerformanceEvidence, "bonusState" | "bonusReason" | "throughputGain" | "completionGain" | "bonusConcurrency" | "bonusSampleCount" | "cacheControl"> & { fraction: number };
@@ -1270,7 +1281,15 @@ export function assessConcurrencyBonus(run: Data): BonusEvidence {
       selected.samples.some((s, n) => s.task_id !== baseline.samples[n].task_id || s.prompt_sha256 !== baseline.samples[n].prompt_sha256 ||
         s.attempt.score.value < baseline.samples[n].attempt.score.value))
     return fail("동시 요청의 문항·설정·정상 완료 근거가 단일 요청 비교 기준과 일치하지 않습니다.");
-  const gain = selected.throughput / baseline.throughput, completionGain = baseline.round.elapsed_ms / selected.round.elapsed_ms;
+  if (t.version === "auto-concurrency-v2") {
+    for (const chosen of [baseline, selected]) {
+      const repeated = (t.rounds || []).map((r: Data, index: number) => ({ r, index }))
+        .filter(({ r }: { r: Data }) => r.concurrency === chosen.round.concurrency && r.role !== "warmup")
+        .map(({ index }: { index: number }) => verifiedTuningRound(run, index));
+      if (repeated.length < 3 || repeated.some((r: unknown) => !r)) return fail("동시 설정의 3회 반복 검증이 완결되지 않아 가산하지 않습니다.");
+    }
+  }
+  const gain = selected.throughput / baseline.throughput, completionGain = baseline.measuredMs / selected.measuredMs;
   if (!finite(gain) || !finite(completionGain) || !finite(t.throughput_gain) || !finite(t.completion_gain) ||
       Math.abs(gain - t.throughput_gain) > Math.max(.0001, gain * .01) ||
       Math.abs(completionGain - t.completion_gain) > Math.max(.0001, completionGain * .01))

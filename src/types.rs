@@ -49,7 +49,9 @@ fn optional_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Erro
 pub fn default_api_format() -> String {
     "chat_completions".into()
 }
-fn is_false(v: &bool) -> bool { !*v }
+fn is_false(v: &bool) -> bool {
+    !*v
+}
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -67,6 +69,8 @@ pub struct Config {
     pub concurrency: usize,
     #[serde(default, skip_serializing_if = "is_false")]
     pub auto_concurrency: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_item_limit: Option<usize>,
     pub timeout_s: u64,
     #[serde(default)]
     pub reasoning_effort: String,
@@ -332,7 +336,9 @@ impl Run {
             }
         }
         v["summary"] = self.summary();
-        if let Some(t) = &self.concurrency_tuning { v["concurrency_tuning"] = t.public(raw, false); }
+        if let Some(t) = &self.concurrency_tuning {
+            v["concurrency_tuning"] = t.public(raw, false);
+        }
         v
     }
     pub fn summary(&self) -> Value {
