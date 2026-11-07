@@ -393,6 +393,97 @@ pub fn upgrade_experience_scores(run: &mut Run) -> usize {
     changed
 }
 
+// Remove presentation only: never inspect the reference answer or rewrite
+// content/case/inner whitespace. One sentence-ending period is optional, as in
+// v1; balanced Markdown emphasis/inline-code may surround the whole answer.
+fn bbh_unwrap(text: &str) -> &str {
+    let mut value = text.trim();
+    for _ in 0..8 {
+        let next = ["***", "___", "**", "__", "*", "_", "`"]
+            .into_iter()
+            .find_map(|wrapper| {
+                value
+                    .strip_prefix(wrapper)
+                    .and_then(|v| v.strip_suffix(wrapper))
+                    .filter(|v| !v.trim().is_empty())
+            });
+        match next {
+            Some(inner) => value = inner.trim(),
+            None => break,
+        }
+    }
+    value
+}
+
+fn bbh_presentation(text: &str) -> &str {
+    let value = text.trim();
+    if let Some(content) = value.strip_suffix('.') {
+        bbh_unwrap(content)
+    } else {
+        let unwrapped = bbh_unwrap(value);
+        unwrapped.strip_suffix('.').unwrap_or(unwrapped).trim_end()
+    }
+}
+
+fn bbh_extract(output: &str) -> (Option<String>, &'static str) {
+    // Unwrap complete lines first so **Answer: No** is a recognizable label.
+    // Do not remove punctuation from arbitrary lines: only the selected answer
+    // uses the optional sentence-period rule below.
+    let lines = output
+        .lines()
+        .map(bbh_unwrap)
+        .collect::<Vec<_>>()
+        .join("\n");
+    static MARKER: OnceLock<Regex> = OnceLock::new();
+    let marker = MARKER.get_or_init(|| {
+        Regex::new(r"(?im)\bthe answer is\b|^[\t ]*(?:final[\t ]+answer|answer)[\t ]*:").unwrap()
+    });
+    let Some(m) = marker.find_iter(&lines).last() else {
+        return (None, "missing_explicit_marker");
+    };
+    let method = if m.as_str().trim_end().ends_with(':') {
+        "explicit_answer_label"
+    } else {
+        "explicit_answer_marker"
+    };
+    let rest = lines[m.end()..].trim_start();
+    let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
+    let answer = rest
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(bbh_presentation)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    (answer, method)
+}
+
+// Known-version, startup/import compatibility migration only. Preserve the
+// original response, timing, raw API events and previous grading audit trail.
+pub fn upgrade_bbh_scores(run: &mut Run) -> usize {
+    let mut changed = 0;
+    for item in &mut run.items {
+        if item.task.scorer != "bbh" {
+            continue;
+        }
+        for attempt in &mut item.attempts {
+            if attempt.ended_at.is_some()
+                && attempt.error.is_none()
+                && attempt
+                    .score
+                    .as_ref()
+                    .is_some_and(|s| s.scorer_version == "bbh-marker-exact-v1")
+            {
+                attempt.score = Some(
+                    bbh_score(&item.task, &attempt.output).with_previous(attempt.score.as_ref()),
+                );
+                changed += 1;
+            }
+        }
+    }
+    changed
+}
+
 fn bbh_score(task: &Task, output: &str) -> Score {
     // The BBH paper specifies marker-based extraction + exact match but does
     // not publish the extractor. Keep our interpretation explicit/versioned.
@@ -416,35 +507,26 @@ fn bbh_score(task: &Task, output: &str) -> Score {
                     "원본자료 불완전: snarks:0088 선택지가 잘려 있습니다. 원본 보존, 점수 제외."
                 })
                 .into(),
-            scorer_version: "bbh-marker-exact-v1".into(),
+            scorer_version: "bbh-marker-exact-v2".into(),
             extra: json!({"error_code":if conflicting {"source_conflict"} else {"source_incomplete"},"original_preserved":true}),
         };
     }
     let Some(expected) = task.answer.as_str().filter(|s| !s.is_empty()) else {
         return unavailable("BBH 정답 문자열이 없습니다".into());
     };
-    static MARKER: OnceLock<Regex> = OnceLock::new();
-    let marker = MARKER.get_or_init(|| Regex::new(r"(?i)\bthe answer is\b").unwrap());
-    let extracted = marker.find_iter(output).last().and_then(|m| {
-        output[m.end()..]
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .map(|line| line.strip_suffix('.').unwrap_or(line).trim())
-            .filter(|line| !line.is_empty())
-    });
+    let (extracted, extraction_method) = bbh_extract(output);
     let mut score = result(
-        extracted == Some(expected),
-        match extracted {
+        extracted.as_deref() == Some(expected),
+        match extracted.as_deref() {
             Some(answer) => {
-                format!("최종 답안: {answer} · 명시적 답안 추출 후 정확 일치 (앱 규칙)")
+                format!("최종 답안: {answer} · 명시적 답안의 표시 형식 정리 후 정확 일치 (앱 규칙)")
             }
-            None => "최종 답안 표식 'the answer is' 없음 · 임의 답안 추정 없음".into(),
+            None => "명시적 최종 답안 없음 · 임의 답안 추정 없음".into(),
         },
-        "bbh-marker-exact-v1",
+        "bbh-marker-exact-v2",
     );
     score.extra = json!({"extracted_answer":extracted,"official_extractor":false,
-        "metric":"exact_match","protocol":"bbh-marker-exact-v1"});
+        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v2"});
     score
 }
 
@@ -579,6 +661,24 @@ mod tests {
             ("aspect census", "The answer is aspect  census.", false),
             ("(B)", "The answer is", false),
             ("(B)", "The answer is (B). because it follows.", false),
+            ("Yes", "So the answer is **Yes**.", true),
+            ("Yes", "The answer is:\n\n**Yes**", true),
+            ("No", "**Answer: No**", true),
+            ("No", "Reasoning.\nFinal answer: `No`.", true),
+            ("(B)", "Answer: **(B)**", true),
+            ("Yes", "**The answer is: Yes**", true),
+            ("Yes", "The answer is __Yes.__", true),
+            ("Yes", "The answer is ***Yes***.", true),
+            ("Yes", "The answer is **Yes..**", false),
+            ("Yes", "The answer is **No**.", false),
+            ("No", "Answer: **Yes**", false),
+            ("Yes", "Answer: **Yes** or **No**", false),
+            ("Yes", "The answer is **Yes** because that follows.", false),
+            ("Yes", "The answer is: ", false),
+            ("Yes", "The answer is Yes.\nFinal answer: No", false),
+            ("Yes", "Final answer: No\nThe answer is Yes.", true),
+            ("Yes", "I considered Yes and No but remain unsure.", false),
+            ("Yes", "", false),
         ] {
             let result = score(&task("bbh", json!(reference)), output).await;
             assert_eq!(
@@ -586,7 +686,7 @@ mod tests {
                 Some(if correct { 1.0 } else { 0.0 }),
                 "{output}"
             );
-            assert_eq!(result.scorer_version, "bbh-marker-exact-v1");
+            assert_eq!(result.scorer_version, "bbh-marker-exact-v2");
             assert_eq!(result.extra["official_extractor"], false);
         }
         assert_eq!(
@@ -609,6 +709,99 @@ mod tests {
         let ready = readiness(&["bbh".into()], None).await;
         assert_eq!(ready["scorers"]["bbh"]["verification"], "built_in");
         assert_eq!(ready["scorers"]["bbh"]["available"], true);
+    }
+    #[test]
+    fn bbh_extraction_does_not_depend_on_reference() {
+        let text = "So the answer is **Yes**.";
+        let yes = bbh_score(&task("bbh", json!("Yes")), text);
+        let no = bbh_score(&task("bbh", json!("No")), text);
+        assert_eq!(yes.extra["extracted_answer"], "Yes");
+        assert_eq!(no.extra["extracted_answer"], "Yes");
+        assert_eq!(yes.value, Some(1.0));
+        assert_eq!(no.value, Some(0.0));
+        assert_eq!(yes.extra["extraction_method"], "explicit_answer_marker");
+        assert_eq!(
+            bbh_score(&task("bbh", json!("No")), "**Answer: No**").extra["extraction_method"],
+            "explicit_answer_label"
+        );
+    }
+    #[test]
+    fn bbh_score_migration_preserves_evidence_and_is_idempotent() {
+        use crate::types::{Attempt, Item, Metrics};
+        let previous = result(
+            false,
+            "old presentation failure".into(),
+            "bbh-marker-exact-v1",
+        )
+        .with_previous(None);
+        let attempt = Attempt {
+            started_at: "2026-11-07T00:00:00Z".into(),
+            ended_at: Some("2026-11-07T00:00:02Z".into()),
+            output: "So the answer is **Yes**.".into(),
+            reasoning: "private unchanged reasoning".into(),
+            finish_reason: Some("stop".into()),
+            error: None,
+            metrics: Metrics {
+                wall_ms: 2000.0,
+                output_tokens: Some(20),
+                ..Default::default()
+            },
+            score: Some(previous.clone()),
+            raw: vec![json!({"event":"original"})],
+        };
+        let item = Item {
+            task: task("bbh", json!("Yes")),
+            status: "done".into(),
+            attempts: vec![attempt],
+        };
+        let mut run = Run {
+            id:"migration-contract".into(),created_at:"2026-11-07T00:00:00Z".into(),
+            config:serde_json::from_value(json!({"name":"test","base_url":"","model":"","pack_id":"","profile":"full","temperature":0,"max_tokens":100,"concurrency":1,"timeout_s":10})).unwrap(),
+            status:"paused".into(),suite_hash:"keep-suite".into(),protocol_version:"keep-protocol".into(),pack_version:"keep-pack".into(),provenance:"test".into(),
+            items:vec![item.clone();7],telemetry:vec![json!({"original":1})],active_ms:2000.0,error:None,
+            execution_segments:vec![],initial_concurrency:Some(1),concurrency_tuning:None,
+        };
+        // Never upgrade current/future/unknown rules, requests with errors or
+        // unfinished attempts, or other benchmark scorers.
+        run.items[1].attempts[0]
+            .score
+            .as_mut()
+            .unwrap()
+            .scorer_version = "bbh-marker-exact-v2".into();
+        run.items[2].attempts[0]
+            .score
+            .as_mut()
+            .unwrap()
+            .scorer_version = "bbh-marker-exact-v99".into();
+        run.items[3].attempts[0]
+            .score
+            .as_mut()
+            .unwrap()
+            .scorer_version = "unknown".into();
+        run.items[4].attempts[0].error = Some("request failed".into());
+        run.items[5].attempts[0].ended_at = None;
+        run.items[6].task.scorer = "exact".into();
+        let before = serde_json::to_value(&run).unwrap();
+        assert_eq!(upgrade_bbh_scores(&mut run), 1);
+        let upgraded = run.items[0].attempts[0].score.as_ref().unwrap();
+        assert_eq!(upgraded.value, Some(1.0));
+        assert_eq!(
+            upgraded.extra["grading_history"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(upgraded.extra["previous_score"]["value"], 0.0);
+        assert_eq!(
+            upgraded.extra["previous_score"]["scorer_version"],
+            "bbh-marker-exact-v1"
+        );
+        let after = serde_json::to_value(&run).unwrap();
+        let mut scores_removed_before = before.clone();
+        let mut scores_removed_after = after.clone();
+        scores_removed_before["items"][0]["attempts"][0]["score"] = Value::Null;
+        scores_removed_after["items"][0]["attempts"][0]["score"] = Value::Null;
+        assert_eq!(scores_removed_before, scores_removed_after);
+        assert_eq!(upgrade_bbh_scores(&mut run), 0);
+        assert_eq!(serde_json::to_value(&run).unwrap(), after);
     }
     #[tokio::test]
     async fn answer_extraction_and_json_types() {

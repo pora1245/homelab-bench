@@ -289,13 +289,18 @@ pub async fn restore(db: &SqlitePool, id: &str) -> anyhow::Result<Run> {
     );
     // Upgrade and restore atomically: a failed score write must leave the
     // record in the trash, with its original evidence and deletion marker.
-    if crate::scoring::upgrade_experience_scores(&mut r) > 0 {
+    let experience_changed = crate::scoring::upgrade_experience_scores(&mut r) > 0;
+    let bbh_positions = upgrade_bbh_item_positions(&mut r);
+    if experience_changed || !bbh_positions.is_empty() {
         sqlx::query("UPDATE runs SET body=? WHERE id=?")
             .bind(serde_json::to_string(&header(&r))?)
             .bind(id)
             .execute(&mut *tx)
             .await?;
         for (position, item) in r.items.iter().enumerate() {
+            if !experience_changed && !bbh_positions.contains(&position) {
+                continue;
+            }
             sqlx::query("INSERT INTO run_items(run_id,position,body) VALUES(?,?,?) ON CONFLICT(run_id,position) DO UPDATE SET body=excluded.body")
                 .bind(id).bind(position as i64).bind(serde_json::to_string(item)?)
                 .execute(&mut *tx).await?;
@@ -307,6 +312,25 @@ pub async fn restore(db: &SqlitePool, id: &str) -> anyhow::Result<Run> {
         .await?;
     tx.commit().await?;
     Ok(r)
+}
+
+/// Determine exactly which stored item score arrays changed during the scoped
+/// BBH compatibility upgrade. This avoids rewriting unrelated response rows.
+pub(crate) fn upgrade_bbh_item_positions(run: &mut Run) -> Vec<usize> {
+    let before = run.items.iter().enumerate()
+        .filter(|(_, item)| item.task.scorer == "bbh")
+        .map(|(index, item)| (index, serde_json::to_value(
+            item.attempts.iter().map(|a| &a.score).collect::<Vec<_>>()
+        ).expect("score serializes")))
+        .collect::<Vec<_>>();
+    if crate::scoring::upgrade_bbh_scores(run) == 0 {
+        return Vec::new();
+    }
+    before.into_iter().filter_map(|(index, old)| {
+        let new = serde_json::to_value(run.items[index].attempts.iter()
+            .map(|a| &a.score).collect::<Vec<_>>()).expect("score serializes");
+        (old != new).then_some(index)
+    }).collect()
 }
 
 #[cfg(test)]

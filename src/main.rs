@@ -261,6 +261,7 @@ async fn main() -> anyhow::Result<()> {
     };
     settings::init(&app).await?;
     upgrade_performance_records(&app).await?;
+    upgrade_bbh_records(&app).await?;
     let router = Router::new()
         .route(
             "/api/health",
@@ -911,6 +912,7 @@ async fn import_run(State(s): State<App>, Json(mut r): Json<Run>) -> ApiResult<J
     r.provenance = "imported_record".into();
     r.suite_hash = digest(&r.items.iter().map(|i| i.task.clone()).collect::<Vec<_>>());
     scoring::upgrade_experience_scores(&mut r);
+    scoring::upgrade_bbh_scores(&mut r);
     let id = r.id.clone();
     s.save(&r).await.map_err(bad)?;
     s.runs.lock().await.insert(id.clone(), r);
@@ -1044,6 +1046,21 @@ async fn upgrade_performance_records(s: &App) -> anyhow::Result<()> {
     Ok(())
 }
 
+// Regrade stored BBH answers before serving requests. Only score metadata is
+// changed, and only the affected item rows are written. A failed transaction
+// aborts startup; model requests and judge credentials are never involved.
+async fn upgrade_bbh_records(s: &App) -> anyhow::Result<()> {
+    let mut runs = s.runs.lock().await;
+    for run in runs.values_mut() {
+        let changed = storage::upgrade_bbh_item_positions(run);
+        if !changed.is_empty() {
+            s.dirty.lock().await.entry(run.id.clone()).or_default().extend(changed);
+            storage::save(s, run, false).await?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod performance_upgrade_tests {
     use super::*;
@@ -1148,5 +1165,84 @@ mod performance_upgrade_tests {
             serde_json::to_value(&s.runs.lock().await["fixture"]).unwrap(),
             serde_json::to_value(&after).unwrap()
         );
+    }
+
+    async fn app_with_bbh_run() -> App {
+        let s = app_with_run().await;
+        let mut runs = s.runs.lock().await;
+        let r = runs.get_mut("fixture").unwrap();
+        let item = &mut r.items[0];
+        item.task.id = "bbh:causal_judgement:fixture".into();
+        item.task.scorer = "bbh".into();
+        item.task.answer = json!("Yes");
+        item.task.meta = Value::Null;
+        item.attempts[0].output = "So the answer is **Yes**.".into();
+        item.attempts[0].score = Some(serde_json::from_value(json!({
+            "value":0,"state":"scored","detail":"previous literal formatting mismatch",
+            "scorer_version":"bbh-marker-exact-v1","extra":{"extracted_answer":"**Yes**"}
+        })).unwrap());
+        s.save(r).await.unwrap();
+        drop(runs);
+        // Noncanonical whitespace proves that an unrelated SQL row was not
+        // serialized again merely because another question was regraded.
+        sqlx::query("UPDATE run_items SET body='  ' || body || '  ' WHERE run_id='fixture' AND position=1")
+            .execute(&s.db).await.unwrap();
+        sqlx::query("CREATE TRIGGER protect_other_items BEFORE UPDATE ON run_items WHEN OLD.position != 0 BEGIN SELECT RAISE(ABORT,'unrelated item rewritten'); END")
+            .execute(&s.db).await.unwrap();
+        s
+    }
+
+    #[tokio::test]
+    async fn bbh_upgrade_writes_only_changed_scores_and_is_idempotent() {
+        let s = app_with_bbh_run().await;
+        let before = s.runs.lock().await["fixture"].clone();
+        let row_before: (String,) = sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=1")
+            .fetch_one(&s.db).await.unwrap();
+        upgrade_bbh_records(&s).await.unwrap();
+        let after = s.runs.lock().await["fixture"].clone();
+        let mut evidence_before = serde_json::to_value(&before).unwrap();
+        let mut evidence_after = serde_json::to_value(&after).unwrap();
+        evidence_before["items"][0]["attempts"][0]["score"] = Value::Null;
+        evidence_after["items"][0]["attempts"][0]["score"] = Value::Null;
+        assert_eq!(evidence_before, evidence_after);
+        let score = after.items[0].attempts[0].score.as_ref().unwrap();
+        assert_eq!(score.value, Some(1.0));
+        assert_eq!(score.scorer_version, "bbh-marker-exact-v2");
+        assert_eq!(score.extra["grading_history"][0]["score"]["value"], 0.0);
+        let row_after: (String,) = sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=1")
+            .fetch_one(&s.db).await.unwrap();
+        assert_eq!(row_before, row_after);
+        let mut loaded = after.clone();
+        loaded.items.clear();
+        storage::load_items(&s.db, &mut loaded).await.unwrap();
+        assert_eq!(serde_json::to_value(&loaded.items).unwrap(), serde_json::to_value(&after.items).unwrap());
+        assert!(s.dirty.lock().await.is_empty());
+        assert!(s.keys.lock().await.is_empty() && s.judge_keys.lock().await.is_empty());
+        sqlx::query("CREATE TRIGGER forbid_second_upgrade BEFORE UPDATE ON run_items BEGIN SELECT RAISE(ABORT,'idempotence failure'); END")
+            .execute(&s.db).await.unwrap();
+        upgrade_bbh_records(&s).await.unwrap();
+        assert_eq!(serde_json::to_value(&s.runs.lock().await["fixture"]).unwrap(), serde_json::to_value(&after).unwrap());
+    }
+
+    #[tokio::test]
+    async fn bbh_restore_upgrade_is_atomic_and_preserves_unrelated_rows() {
+        let s = app_with_bbh_run().await;
+        let r = s.runs.lock().await["fixture"].clone();
+        // The record is already stored; create the normal deletion marker
+        // without invoking a deliberate all-item trash checkpoint here.
+        sqlx::query("INSERT INTO run_trash(run_id,deleted_at,metadata) VALUES('fixture','2026-11-07T00:00:00Z','{}')")
+            .execute(&s.db).await.unwrap();
+        sqlx::query("CREATE TRIGGER fail_score_upgrade BEFORE UPDATE ON run_items WHEN OLD.position=0 BEGIN SELECT RAISE(ABORT,'injected save failure'); END")
+            .execute(&s.db).await.unwrap();
+        assert!(storage::restore(&s.db, "fixture").await.is_err());
+        assert!(storage::deleted_at(&s.db, "fixture").await.unwrap().is_some());
+        let (body,): (String,) = sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=0")
+            .fetch_one(&s.db).await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["attempts"][0]["score"]["scorer_version"], "bbh-marker-exact-v1");
+        sqlx::query("DROP TRIGGER fail_score_upgrade").execute(&s.db).await.unwrap();
+        let restored = storage::restore(&s.db, "fixture").await.unwrap();
+        assert_eq!(restored.items[0].attempts[0].score.as_ref().unwrap().value, Some(1.0));
+        assert_eq!(serde_json::to_value(&restored.items[1]).unwrap(), serde_json::to_value(&r.items[1]).unwrap());
+        assert!(storage::deleted_at(&s.db, "fixture").await.unwrap().is_none());
     }
 }
