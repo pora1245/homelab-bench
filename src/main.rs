@@ -1207,7 +1207,7 @@ mod performance_upgrade_tests {
         assert_eq!(evidence_before, evidence_after);
         let score = after.items[0].attempts[0].score.as_ref().unwrap();
         assert_eq!(score.value, Some(1.0));
-        assert_eq!(score.scorer_version, "bbh-marker-exact-v2");
+        assert_eq!(score.scorer_version, "bbh-marker-exact-v3");
         assert_eq!(score.extra["grading_history"][0]["score"]["value"], 0.0);
         let row_after: (String,) = sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=1")
             .fetch_one(&s.db).await.unwrap();
@@ -1244,5 +1244,49 @@ mod performance_upgrade_tests {
         assert_eq!(restored.items[0].attempts[0].score.as_ref().unwrap().value, Some(1.0));
         assert_eq!(serde_json::to_value(&restored.items[1]).unwrap(), serde_json::to_value(&r.items[1]).unwrap());
         assert!(storage::deleted_at(&s.db, "fixture").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn bbh_v2_upgrade_keeps_full_grading_history_and_original_evidence() {
+        let s = app_with_bbh_run().await;
+        {
+            let mut runs = s.runs.lock().await;
+            let run = runs.get_mut("fixture").unwrap();
+            let item = &mut run.items[0];
+            item.task.id = "bbh:disambiguation_qa:fixture".into();
+            item.task.prompt = "Q: Earlier example?\nOptions:\n(A) Earlier text\n(B) Other earlier text\nA: The answer is (A).\n\nQ: Which color?\nOptions:\n(A) red\n(B) blue\n(C) green\nA: Let's think step by step.".into();
+            item.task.answer = json!("(B)");
+            item.task.meta = json!({"prompt_protocol":"bbh-official-3shot-cot-v1"});
+            item.attempts[0].output = "So the answer is **(B) blue**.".into();
+            let previous = item.attempts[0].score.take().unwrap();
+            let v2: Score = serde_json::from_value(json!({
+                "value":0,"state":"scored","detail":"v2 exact answer includes choice text",
+                "scorer_version":"bbh-marker-exact-v2","extra":{"extracted_answer":"(B) blue"}
+            })).unwrap();
+            item.attempts[0].score = Some(v2.with_previous(Some(&previous)));
+            s.dirty.lock().await.entry(run.id.clone()).or_default().insert(0);
+            storage::save(&s, run, false).await.unwrap();
+        }
+        let before = s.runs.lock().await["fixture"].clone();
+        upgrade_bbh_records(&s).await.unwrap();
+        let after = s.runs.lock().await["fixture"].clone();
+        let score = after.items[0].attempts[0].score.as_ref().unwrap();
+        assert_eq!(score.scorer_version, "bbh-marker-exact-v3");
+        assert_eq!(score.value, Some(1.0));
+        let versions = score.extra["grading_history"].as_array().unwrap().iter()
+            .map(|event| event["score"]["scorer_version"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(versions, ["bbh-marker-exact-v1", "bbh-marker-exact-v2"]);
+        let mut before_value = serde_json::to_value(&before).unwrap();
+        let mut after_value = serde_json::to_value(&after).unwrap();
+        before_value["items"][0]["attempts"][0]["score"] = Value::Null;
+        after_value["items"][0]["attempts"][0]["score"] = Value::Null;
+        assert_eq!(before_value, after_value);
+        let mut loaded = after.clone();
+        loaded.items.clear();
+        storage::load_items(&s.db, &mut loaded).await.unwrap();
+        assert_eq!(serde_json::to_value(&loaded.items).unwrap(), serde_json::to_value(&after.items).unwrap());
+        upgrade_bbh_records(&s).await.unwrap();
+        assert_eq!(serde_json::to_value(&s.runs.lock().await["fixture"]).unwrap(), serde_json::to_value(&after).unwrap());
     }
 }

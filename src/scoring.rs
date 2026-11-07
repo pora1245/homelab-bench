@@ -458,6 +458,42 @@ fn bbh_extract(output: &str) -> (Option<String>, &'static str) {
     (answer, method)
 }
 
+// A model may repeat the selected option's text after its symbol. Resolve that
+// presentation using ONLY the current question/options, never the reference
+// answer. Frozen BBH prompts include three worked examples, so their options
+// must not participate. Unknown prompt layouts fail closed.
+fn bbh_option_symbol(prompt: &str, protocol: Option<&str>, candidate: &str) -> Option<String> {
+    if protocol != Some("bbh-official-3shot-cot-v1") {
+        return None;
+    }
+    let (_, current) = prompt.rsplit_once("\n\nQ: ")?;
+    let question = current.strip_suffix("\nA: Let's think step by step.")?;
+    let (_, option_lines) = question.split_once("\nOptions:\n")?;
+    static OPTION: OnceLock<Regex> = OnceLock::new();
+    let option = OPTION.get_or_init(|| Regex::new(r"^\(([A-Z])\)[\t ]+(.+)$").unwrap());
+    let selected = option.captures(candidate)?;
+    let mut choices = BTreeMap::new();
+    for line in option_lines
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+    {
+        let capture = option.captures(line)?;
+        let symbol = capture[1].to_owned();
+        let body = capture[2].trim();
+        if body.is_empty() || choices.insert(symbol, body.to_owned()).is_some() {
+            return None;
+        }
+    }
+    if choices.len() < 2 {
+        return None;
+    }
+    let body = choices.get(&selected[1])?;
+    // The same presentation-only period/wrapper treatment already applied to
+    // the extracted candidate is applied once to the source option body.
+    (selected[2].trim() == bbh_presentation(body)).then(|| format!("({})", &selected[1]))
+}
+
 // Known-version, startup/import compatibility migration only. Preserve the
 // original response, timing, raw API events and previous grading audit trail.
 pub fn upgrade_bbh_scores(run: &mut Run) -> usize {
@@ -469,10 +505,12 @@ pub fn upgrade_bbh_scores(run: &mut Run) -> usize {
         for attempt in &mut item.attempts {
             if attempt.ended_at.is_some()
                 && attempt.error.is_none()
-                && attempt
-                    .score
-                    .as_ref()
-                    .is_some_and(|s| s.scorer_version == "bbh-marker-exact-v1")
+                && attempt.score.as_ref().is_some_and(|s| {
+                    matches!(
+                        s.scorer_version.as_str(),
+                        "bbh-marker-exact-v1" | "bbh-marker-exact-v2"
+                    )
+                })
             {
                 attempt.score = Some(
                     bbh_score(&item.task, &attempt.output).with_previous(attempt.score.as_ref()),
@@ -507,26 +545,35 @@ fn bbh_score(task: &Task, output: &str) -> Score {
                     "원본자료 불완전: snarks:0088 선택지가 잘려 있습니다. 원본 보존, 점수 제외."
                 })
                 .into(),
-            scorer_version: "bbh-marker-exact-v2".into(),
+            scorer_version: "bbh-marker-exact-v3".into(),
             extra: json!({"error_code":if conflicting {"source_conflict"} else {"source_incomplete"},"original_preserved":true}),
         };
     }
     let Some(expected) = task.answer.as_str().filter(|s| !s.is_empty()) else {
         return unavailable("BBH 정답 문자열이 없습니다".into());
     };
-    let (extracted, extraction_method) = bbh_extract(output);
+    let (raw_extracted, extraction_method) = bbh_extract(output);
+    let choice_symbol = raw_extracted.as_deref().and_then(|candidate| {
+        bbh_option_symbol(
+            &task.prompt,
+            task.meta["prompt_protocol"].as_str(),
+            candidate,
+        )
+    });
+    let extracted = choice_symbol.as_ref().or(raw_extracted.as_ref());
     let mut score = result(
-        extracted.as_deref() == Some(expected),
-        match extracted.as_deref() {
+        extracted.map(String::as_str) == Some(expected),
+        match extracted.map(String::as_str) {
             Some(answer) => {
                 format!("최종 답안: {answer} · 명시적 답안의 표시 형식 정리 후 정확 일치 (앱 규칙)")
             }
             None => "명시적 최종 답안 없음 · 임의 답안 추정 없음".into(),
         },
-        "bbh-marker-exact-v2",
+        "bbh-marker-exact-v3",
     );
     score.extra = json!({"extracted_answer":extracted,"official_extractor":false,
-        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v2"});
+        "raw_extracted_answer":raw_extracted,"choice_normalization":choice_symbol.is_some().then_some("symbol_and_exact_current_option_text"),
+        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v3"});
     score
 }
 
@@ -686,7 +733,7 @@ mod tests {
                 Some(if correct { 1.0 } else { 0.0 }),
                 "{output}"
             );
-            assert_eq!(result.scorer_version, "bbh-marker-exact-v2");
+            assert_eq!(result.scorer_version, "bbh-marker-exact-v3");
             assert_eq!(result.extra["official_extractor"], false);
         }
         assert_eq!(
@@ -726,6 +773,58 @@ mod tests {
         );
     }
     #[test]
+    fn bbh_choice_body_requires_exact_current_option_and_never_uses_reference() {
+        let mut t = task("bbh", json!("(D)"));
+        t.meta = json!({"prompt_protocol":"bbh-official-3shot-cot-v1"});
+        t.prompt = "Instructions.\n\nQ: Worked example\nOptions:\n(A) old red\n(D) 12/14/1937\nA: Let's think step by step.\nThe answer is (D).\n\nQ: Current question\nOptions:\n(A) red item\n(B) blue item\n(C) green item\n(D) 08/03/1996\nA: Let's think step by step.".into();
+        for (answer, extracted, correct) in [
+            ("(D) 08/03/1996", "(D)", true),
+            ("**(D) 08/03/1996**", "(D)", true),
+            ("(D)", "(D)", true),
+            ("(B) blue item", "(B)", false),
+            ("(D) 12/14/1937", "(D) 12/14/1937", false),
+            ("(D) green item", "(D) green item", false),
+            (
+                "(D) 08/03/1996 because it follows",
+                "(D) 08/03/1996 because it follows",
+                false,
+            ),
+            (
+                "(D) 08/03/1996 or (B) blue item",
+                "(D) 08/03/1996 or (B) blue item",
+                false,
+            ),
+            ("(D) 08/03/1996 (D)", "(D) 08/03/1996 (D)", false),
+            ("(A) red  item", "(A) red  item", false),
+        ] {
+            let s = bbh_score(&t, &format!("So the answer is {answer}."));
+            assert_eq!(s.extra["extracted_answer"], extracted, "{answer}");
+            assert_eq!(s.value, Some(if correct { 1.0 } else { 0.0 }), "{answer}");
+        }
+        let output = "The answer is (B) blue item.";
+        let wrong = bbh_score(&t, output);
+        t.answer = json!("(B)");
+        let correct = bbh_score(&t, output);
+        assert_eq!(
+            wrong.extra["extracted_answer"],
+            correct.extra["extracted_answer"]
+        );
+        assert_eq!(wrong.value, Some(0.0));
+        assert_eq!(correct.value, Some(1.0));
+        assert_eq!(correct.extra["raw_extracted_answer"], "(B) blue item");
+        assert_eq!(
+            correct.extra["choice_normalization"],
+            "symbol_and_exact_current_option_text"
+        );
+        t.meta = Value::Null;
+        assert_eq!(bbh_score(&t, output).value, Some(0.0));
+        t.meta = json!({"prompt_protocol":"bbh-official-3shot-cot-v1"});
+        t.prompt = t.prompt.replace("(C) green item", "(B) duplicate blue");
+        assert_eq!(bbh_score(&t, output).value, Some(0.0));
+        t.prompt = "Instructions.\n\nQ: No current choices\nA: Let's think step by step.".into();
+        assert_eq!(bbh_score(&t, output).value, Some(0.0));
+    }
+    #[test]
     fn bbh_score_migration_preserves_evidence_and_is_idempotent() {
         use crate::types::{Attempt, Item, Metrics};
         let previous = result(
@@ -758,7 +857,7 @@ mod tests {
             id:"migration-contract".into(),created_at:"2026-11-07T00:00:00Z".into(),
             config:serde_json::from_value(json!({"name":"test","base_url":"","model":"","pack_id":"","profile":"full","temperature":0,"max_tokens":100,"concurrency":1,"timeout_s":10})).unwrap(),
             status:"paused".into(),suite_hash:"keep-suite".into(),protocol_version:"keep-protocol".into(),pack_version:"keep-pack".into(),provenance:"test".into(),
-            items:vec![item.clone();7],telemetry:vec![json!({"original":1})],active_ms:2000.0,error:None,
+            items:vec![item.clone();8],telemetry:vec![json!({"original":1})],active_ms:2000.0,error:None,
             execution_segments:vec![],initial_concurrency:Some(1),concurrency_tuning:None,
         };
         // Never upgrade current/future/unknown rules, requests with errors or
@@ -767,7 +866,7 @@ mod tests {
             .score
             .as_mut()
             .unwrap()
-            .scorer_version = "bbh-marker-exact-v2".into();
+            .scorer_version = "bbh-marker-exact-v3".into();
         run.items[2].attempts[0]
             .score
             .as_mut()
@@ -781,8 +880,13 @@ mod tests {
         run.items[4].attempts[0].error = Some("request failed".into());
         run.items[5].attempts[0].ended_at = None;
         run.items[6].task.scorer = "exact".into();
+        run.items[7].attempts[0]
+            .score
+            .as_mut()
+            .unwrap()
+            .scorer_version = "bbh-marker-exact-v2".into();
         let before = serde_json::to_value(&run).unwrap();
-        assert_eq!(upgrade_bbh_scores(&mut run), 1);
+        assert_eq!(upgrade_bbh_scores(&mut run), 2);
         let upgraded = run.items[0].attempts[0].score.as_ref().unwrap();
         assert_eq!(upgraded.value, Some(1.0));
         assert_eq!(
@@ -799,6 +903,8 @@ mod tests {
         let mut scores_removed_after = after.clone();
         scores_removed_before["items"][0]["attempts"][0]["score"] = Value::Null;
         scores_removed_after["items"][0]["attempts"][0]["score"] = Value::Null;
+        scores_removed_before["items"][7]["attempts"][0]["score"] = Value::Null;
+        scores_removed_after["items"][7]["attempts"][0]["score"] = Value::Null;
         assert_eq!(scores_removed_before, scores_removed_after);
         assert_eq!(upgrade_bbh_scores(&mut run), 0);
         assert_eq!(serde_json::to_value(&run).unwrap(), after);
