@@ -396,17 +396,60 @@ pub fn upgrade_experience_scores(run: &mut Run) -> usize {
 // Remove presentation only: never inspect the reference answer or rewrite
 // content/case/inner whitespace. One sentence-ending period is optional, as in
 // v1; balanced Markdown emphasis/inline-code may surround the whole answer.
+fn bbh_latex_group(text: &str) -> Option<&str> {
+    for command in ["\\boxed{", "\\text{", "\\mathrm{", "\\mathbf{"] {
+        if let Some(rest) = text.strip_prefix(command) {
+            let mut depth = 1usize;
+            let mut escaped = false;
+            for (pos, ch) in rest.char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if ch == '{' {
+                    depth += 1;
+                }
+                if ch == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        return (pos + 1 == rest.len()).then_some(&rest[..pos]);
+                    }
+                }
+            }
+            return None;
+        }
+    }
+    None
+}
+
 fn bbh_unwrap(text: &str) -> &str {
     let mut value = text.trim();
-    for _ in 0..8 {
-        let next = ["***", "___", "**", "__", "*", "_", "`"]
-            .into_iter()
-            .find_map(|wrapper| {
-                value
-                    .strip_prefix(wrapper)
-                    .and_then(|v| v.strip_suffix(wrapper))
-                    .filter(|v| !v.trim().is_empty())
-            });
+    for _ in 0..12 {
+        let next = [
+            ("***", "***"),
+            ("___", "___"),
+            ("**", "**"),
+            ("__", "__"),
+            ("*", "*"),
+            ("_", "_"),
+            ("`", "`"),
+            ("\\[", "\\]"),
+            ("\\(", "\\)"),
+            ("$$", "$$"),
+            ("$", "$"),
+        ]
+        .into_iter()
+        .find_map(|(open, close)| {
+            value
+                .strip_prefix(open)
+                .and_then(|v| v.strip_suffix(close))
+                .filter(|v| !v.trim().is_empty())
+        })
+        .or_else(|| bbh_latex_group(value));
         match next {
             Some(inner) => value = inner.trim(),
             None => break,
@@ -436,9 +479,33 @@ fn bbh_extract(output: &str) -> (Option<String>, &'static str) {
         .join("\n");
     static MARKER: OnceLock<Regex> = OnceLock::new();
     let marker = MARKER.get_or_init(|| {
-        Regex::new(r"(?im)\bthe answer is\b|^[\t ]*(?:final[\t ]+answer|answer)[\t ]*:").unwrap()
+        Regex::new(r"(?im)\bthe (?:(?:final|correct|best|typical) )?(?:answer|result|option) is\b|\bthe whole expression (?:is|evaluates to)\b|\b(?:a )?typical person would (?:answer|say)\b|^[\t ]*(?:final[\t ]+answer|answer)[\t ]*:").unwrap()
     });
-    let Some(m) = marker.find_iter(&lines).last() else {
+    let Some(m) = marker
+        .find_iter(&lines)
+        .filter(|m| {
+            // "would say that ..." is explanatory prose, not an answer label.
+            // Only accept this prefix when it immediately introduces a literal
+            // closed answer; otherwise permit the explicit boundary fallback.
+            if m.as_str()
+                .to_ascii_lowercase()
+                .contains("typical person would")
+            {
+                let tail = lines[m.end()..].trim_start();
+                let tail = tail.strip_prefix(':').unwrap_or(tail).trim_start();
+                bbh_leading_closed(
+                    tail,
+                    &[
+                        "Yes", "No", "True", "False", "yes", "no", "valid", "invalid",
+                    ],
+                )
+                .is_some()
+            } else {
+                true
+            }
+        })
+        .last()
+    else {
         return (None, "missing_explicit_marker");
     };
     let method = if m.as_str().trim_end().ends_with(':') {
@@ -448,14 +515,95 @@ fn bbh_extract(output: &str) -> (Option<String>, &'static str) {
     };
     let rest = lines[m.end()..].trim_start();
     let rest = rest.strip_prefix(':').unwrap_or(rest).trim_start();
-    let answer = rest
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
+    let math_block = ["\\[", "\\(", "\\boxed{", "$$"]
+        .iter()
+        .any(|prefix| rest.starts_with(prefix));
+    let candidate = if math_block {
+        rest.split("\n\n").next()
+    } else {
+        rest.lines().find(|line| !line.trim().is_empty())
+    };
+    let answer = candidate
         .map(bbh_presentation)
         .filter(|v| !v.is_empty())
         .map(str::to_owned);
     (answer, method)
+}
+
+fn bbh_closed_labels(task: &Task) -> &'static [&'static str] {
+    // Task-defined answer types, independent of the expected answer. Do not
+    // infer a yes/no answer from arbitrary prose or from its truth value.
+    match task.id.split(':').nth(1) {
+        Some("boolean_expressions") => &["True", "False"],
+        Some("causal_judgement" | "navigate" | "web_of_lies") => &["Yes", "No"],
+        Some("sports_understanding") => &["yes", "no"],
+        Some("formal_fallacies") => &["valid", "invalid"],
+        _ => &[],
+    }
+}
+
+fn bbh_leading_closed<'a>(text: &str, labels: &'a [&'a str]) -> Option<&'a str> {
+    let text = text
+        .trim()
+        .strip_prefix("A:")
+        .unwrap_or(text.trim())
+        .trim_start();
+    for label in labels {
+        if bbh_presentation(text) == *label {
+            return Some(label);
+        }
+        for wrapper in ["", "**", "__", "*", "_", "`"] {
+            for punctuation in [".", ",", ":"] {
+                for prefix in [
+                    format!("{wrapper}{label}{punctuation}{wrapper}"),
+                    format!("{wrapper}{label}{wrapper}{punctuation}"),
+                ] {
+                    if let Some(rest) = text.strip_prefix(&prefix) {
+                        if rest.is_empty() || rest.starts_with(char::is_whitespace) {
+                            return Some(label);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn bbh_closed_boundary(task: &Task, output: &str) -> (Option<String>, &'static str) {
+    let labels = bbh_closed_labels(task);
+    if labels.is_empty() {
+        return (None, "missing_explicit_marker");
+    }
+    static PARAGRAPH: OnceLock<Regex> = OnceLock::new();
+    let paragraphs = PARAGRAPH
+        .get_or_init(|| Regex::new(r"\n[\t ]*\n").unwrap())
+        .split(output.trim())
+        .filter(|p| !p.trim().is_empty())
+        .collect::<Vec<_>>();
+    let first = paragraphs
+        .first()
+        .and_then(|p| bbh_leading_closed(p, labels));
+    let last = paragraphs
+        .last()
+        .map(|p| bbh_presentation(p))
+        .and_then(|p| labels.iter().copied().find(|label| *label == p));
+    match (first, last) {
+        (Some(a), Some(b)) if a != b => (None, "ambiguous_answer_boundaries"),
+        (Some(a), _) => (Some(a.to_owned()), "leading_closed_answer"),
+        (_, Some(b)) => (Some(b.to_owned()), "trailing_closed_answer"),
+        _ => (None, "missing_explicit_marker"),
+    }
+}
+
+fn bbh_quote_presentation(text: &str) -> String {
+    text.chars()
+        .map(|ch| match ch {
+            '‘' | '’' => '\'',
+            '“' | '”' => '"',
+            _ => ch,
+        })
+        .collect()
 }
 
 // A model may repeat the selected option's text after its symbol. Resolve that
@@ -491,7 +639,9 @@ fn bbh_option_symbol(prompt: &str, protocol: Option<&str>, candidate: &str) -> O
     let body = choices.get(&selected[1])?;
     // The same presentation-only period/wrapper treatment already applied to
     // the extracted candidate is applied once to the source option body.
-    (selected[2].trim() == bbh_presentation(body)).then(|| format!("({})", &selected[1]))
+    (bbh_quote_presentation(bbh_unwrap(selected[2].trim()))
+        == bbh_quote_presentation(bbh_presentation(body)))
+    .then(|| format!("({})", &selected[1]))
 }
 
 // Known-version, startup/import compatibility migration only. Preserve the
@@ -508,7 +658,7 @@ pub fn upgrade_bbh_scores(run: &mut Run) -> usize {
                 && attempt.score.as_ref().is_some_and(|s| {
                     matches!(
                         s.scorer_version.as_str(),
-                        "bbh-marker-exact-v1" | "bbh-marker-exact-v2"
+                        "bbh-marker-exact-v1" | "bbh-marker-exact-v2" | "bbh-marker-exact-v3"
                     )
                 })
             {
@@ -545,14 +695,21 @@ fn bbh_score(task: &Task, output: &str) -> Score {
                     "원본자료 불완전: snarks:0088 선택지가 잘려 있습니다. 원본 보존, 점수 제외."
                 })
                 .into(),
-            scorer_version: "bbh-marker-exact-v3".into(),
+            scorer_version: "bbh-marker-exact-v4".into(),
             extra: json!({"error_code":if conflicting {"source_conflict"} else {"source_incomplete"},"original_preserved":true}),
         };
     }
     let Some(expected) = task.answer.as_str().filter(|s| !s.is_empty()) else {
         return unavailable("BBH 정답 문자열이 없습니다".into());
     };
-    let (raw_extracted, extraction_method) = bbh_extract(output);
+    let (mut raw_extracted, mut extraction_method) = bbh_extract(output);
+    if extraction_method == "missing_explicit_marker" {
+        (raw_extracted, extraction_method) = bbh_closed_boundary(task, output);
+    } else if let Some(raw) = raw_extracted.as_deref() {
+        if let Some(answer) = bbh_leading_closed(raw, bbh_closed_labels(task)) {
+            raw_extracted = Some(answer.to_owned());
+        }
+    }
     let choice_symbol = raw_extracted.as_deref().and_then(|candidate| {
         bbh_option_symbol(
             &task.prompt,
@@ -569,11 +726,11 @@ fn bbh_score(task: &Task, output: &str) -> Score {
             }
             None => "명시적 최종 답안 없음 · 임의 답안 추정 없음".into(),
         },
-        "bbh-marker-exact-v3",
+        "bbh-marker-exact-v4",
     );
     score.extra = json!({"extracted_answer":extracted,"official_extractor":false,
         "raw_extracted_answer":raw_extracted,"choice_normalization":choice_symbol.is_some().then_some("symbol_and_exact_current_option_text"),
-        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v3"});
+        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v4"});
     score
 }
 
@@ -733,7 +890,7 @@ mod tests {
                 Some(if correct { 1.0 } else { 0.0 }),
                 "{output}"
             );
-            assert_eq!(result.scorer_version, "bbh-marker-exact-v3");
+            assert_eq!(result.scorer_version, "bbh-marker-exact-v4");
             assert_eq!(result.extra["official_extractor"], false);
         }
         assert_eq!(
@@ -825,6 +982,235 @@ mod tests {
         assert_eq!(bbh_score(&t, output).value, Some(0.0));
     }
     #[test]
+    fn bbh_v4_explicit_conclusions_math_and_closed_answer_boundaries() {
+        for (category, reference, output, correct) in [
+            (
+                "boolean_expressions",
+                "False",
+                "So the result is:\n\n**False**",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The final result is **True**.",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The final answer is True.",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "False",
+                "The whole expression is:\n\n**False**",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The whole expression evaluates to:\n\nTrue",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "False",
+                "The answer is:\n\n\\[\n\\boxed{\\text{False}}\n\\]",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The answer is $\\boxed{\\mathrm{True}}$.",
+                true,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The result is \\boxed{True = False}.",
+                false,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The result is \\boxed{True",
+                false,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The result is True or False.",
+                false,
+            ),
+            (
+                "boolean_expressions",
+                "True",
+                "The result is not True.",
+                false,
+            ),
+            ("causal_judgement", "No", "No.", true),
+            (
+                "causal_judgement",
+                "No",
+                "No. The prior event had already happened.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "No",
+                "No. A typical person would say the prior event had already happened.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "A: **Yes.** The action was deliberate.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "Yes, the action was deliberate.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "No",
+                "No: the prior event had already happened.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "A typical person would say **Yes**. The action was deliberate.",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "No",
+                "A typical person would answer: **Yes**.",
+                false,
+            ),
+            (
+                "causal_judgement",
+                "No",
+                "The typical answer is:\n\n**No**",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "No",
+                "The action was ordinary.\n\n**No**",
+                true,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "No. The action was ordinary.\n\nYes",
+                false,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "No evidence supports this interpretation.",
+                false,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "The story contains the word Yes but is unresolved.",
+                false,
+            ),
+            (
+                "causal_judgement",
+                "Yes",
+                "Yes. Initially.\n\nThe final answer is No.",
+                false,
+            ),
+            (
+                "date_understanding",
+                "(A)",
+                "None matches. The closest option is (A).",
+                false,
+            ),
+            (
+                "date_understanding",
+                "(A)",
+                "If forced, I would choose (A).",
+                false,
+            ),
+        ] {
+            let mut t = task("bbh", json!(reference));
+            t.id = format!("bbh:{category}:0000");
+            let s = bbh_score(&t, output);
+            assert_eq!(
+                s.value,
+                Some(if correct { 1.0 } else { 0.0 }),
+                "{output}; extracted={}",
+                s.extra["extracted_answer"]
+            );
+        }
+        let mut t = task("bbh", json!("(A)"));
+        t.meta = json!({"prompt_protocol":"bbh-official-3shot-cot-v1"});
+        t.prompt="Instructions\n\nQ: Current\nOptions:\n(A) They were the writer's friends\n(B) They were the reporter's friends\nA: Let's think step by step.".into();
+        for marker in [
+            "The correct option is",
+            "The best answer is",
+            "The final answer is",
+        ] {
+            let s = bbh_score(
+                &t,
+                &format!("{marker}: (A) **They were the writer’s friends**."),
+            );
+            assert_eq!(s.value, Some(1.0));
+        }
+        assert_eq!(
+            bbh_score(&t, "The answer is (B) They were the writer’s friends.").value,
+            Some(0.0)
+        );
+        assert_eq!(
+            bbh_score(
+                &t,
+                "The answer is (A) They were the writer’s friends because it follows."
+            )
+            .value,
+            Some(0.0)
+        );
+    }
+    #[test]
+    #[ignore = "Read-only audit of explicitly supplied local response fixtures"]
+    fn bbh_read_only_fixture_audit() {
+        let dir = std::env::var("BENCH_BBH_AUDIT_DIR").expect("explicit fixture directory");
+        let output = std::env::var("BENCH_BBH_AUDIT_REPORT").expect("explicit report path");
+        let mut rows = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let item: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            let task: Task = serde_json::from_value(item["task"].clone()).unwrap();
+            let a = item["attempts"].as_array().unwrap().last().unwrap();
+            let score = bbh_score(&task, a["output"].as_str().unwrap());
+            rows.push(json!({"index":path.file_stem().unwrap().to_str().unwrap(),"id":task.id,
+              "finish_reason":a["finish_reason"],"empty_output":a["output"].as_str().unwrap().is_empty(),"old_value":a["score"]["value"],
+              "new_value":score.value,"new_state":score.state,"extraction_method":score.extra["extraction_method"],
+              "choice_normalization":score.extra["choice_normalization"]}));
+        }
+        let corrected = rows
+            .iter()
+            .filter(|r| r["old_value"] == 0.0 && r["new_value"] == 1.0)
+            .count();
+        let report = json!({"total":rows.len(),"corrected":corrected,"rows":rows});
+        std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+        println!(
+            "read-only fixture audit: total={}, corrected={corrected}",
+            report["total"]
+        );
+    }
+    #[test]
     fn bbh_score_migration_preserves_evidence_and_is_idempotent() {
         use crate::types::{Attempt, Item, Metrics};
         let previous = result(
@@ -857,7 +1243,7 @@ mod tests {
             id:"migration-contract".into(),created_at:"2026-11-07T00:00:00Z".into(),
             config:serde_json::from_value(json!({"name":"test","base_url":"","model":"","pack_id":"","profile":"full","temperature":0,"max_tokens":100,"concurrency":1,"timeout_s":10})).unwrap(),
             status:"paused".into(),suite_hash:"keep-suite".into(),protocol_version:"keep-protocol".into(),pack_version:"keep-pack".into(),provenance:"test".into(),
-            items:vec![item.clone();8],telemetry:vec![json!({"original":1})],active_ms:2000.0,error:None,
+            items:vec![item.clone();9],telemetry:vec![json!({"original":1})],active_ms:2000.0,error:None,
             execution_segments:vec![],initial_concurrency:Some(1),concurrency_tuning:None,
         };
         // Never upgrade current/future/unknown rules, requests with errors or
@@ -866,7 +1252,7 @@ mod tests {
             .score
             .as_mut()
             .unwrap()
-            .scorer_version = "bbh-marker-exact-v3".into();
+            .scorer_version = "bbh-marker-exact-v4".into();
         run.items[2].attempts[0]
             .score
             .as_mut()
@@ -885,8 +1271,13 @@ mod tests {
             .as_mut()
             .unwrap()
             .scorer_version = "bbh-marker-exact-v2".into();
+        run.items[8].attempts[0]
+            .score
+            .as_mut()
+            .unwrap()
+            .scorer_version = "bbh-marker-exact-v3".into();
         let before = serde_json::to_value(&run).unwrap();
-        assert_eq!(upgrade_bbh_scores(&mut run), 2);
+        assert_eq!(upgrade_bbh_scores(&mut run), 3);
         let upgraded = run.items[0].attempts[0].score.as_ref().unwrap();
         assert_eq!(upgraded.value, Some(1.0));
         assert_eq!(
@@ -905,6 +1296,8 @@ mod tests {
         scores_removed_after["items"][0]["attempts"][0]["score"] = Value::Null;
         scores_removed_before["items"][7]["attempts"][0]["score"] = Value::Null;
         scores_removed_after["items"][7]["attempts"][0]["score"] = Value::Null;
+        scores_removed_before["items"][8]["attempts"][0]["score"] = Value::Null;
+        scores_removed_after["items"][8]["attempts"][0]["score"] = Value::Null;
         assert_eq!(scores_removed_before, scores_removed_after);
         assert_eq!(upgrade_bbh_scores(&mut run), 0);
         assert_eq!(serde_json::to_value(&run).unwrap(), after);
