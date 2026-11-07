@@ -70,12 +70,17 @@ export function taskBenchmarkId(task: Data): PublicBenchmarkId | null {
 
 export function benchmarkLabel(value: string | Data): string {
   const key = benchmarkKey(value);
-  if (key === "collection") return "종합 평가팩";
+  const id = typeof value === "string" ? value : value?.id;
+  const timed: Record<string,string> = {"timed-10m-v1":"간단 시험 · 10분", "timed-1h-v1":"소형 시험 · 1시간", "timed-4h-v1":"상세 시험 · 4시간", "timed-8h-v1":"전체 시험 · 8시간"};
+  if (timed[id]) return timed[id];
+  if (key === "collection") return "원본 전 문항 · 종합 평가팩";
   if (key === "legacy") return "기존 공개 평가팩";
   return benchmarks[key]?.label || (typeof value === "string" ? value : value?.name || value?.id) || "평가팩 미기록";
 }
 
 export function benchmarkHelp(value: string | Data): string {
+  const id = typeof value === "string" ? value : value?.id;
+  if (String(id).startsWith("timed-")) return "기존 공개 벤치 7종의 고정 발췌입니다. 추론 포함 단일 생성 60 tok/s와 비생성 시간 여유 10%를 기준으로 구성했습니다. 모델별 풀이 길이에 따라 실제 시간은 달라집니다. 작은 팩의 모든 문항은 큰 팩에도 포함되며 원본 전체 점수와 구분합니다.";
   const key = benchmarkKey(value);
   if (key === "collection") return "설치된 평가팩을 함께 실행합니다. 기존 7종의 지능 가중치는 고정하며, BIG-Bench Hard는 별도 확장 정확도로 표시합니다. 문제를 푸는 동안 응답 시간과 생성 속도도 함께 측정합니다.";
   if (key === "legacy") return "기존 실행을 보존하기 위한 표본 평가팩입니다. 당시의 문항·채점 결과를 유지합니다.";

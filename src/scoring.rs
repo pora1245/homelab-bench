@@ -596,6 +596,67 @@ fn bbh_closed_boundary(task: &Task, output: &str) -> (Option<String>, &'static s
     }
 }
 
+// Free-form BBH answers can be a bare sequence, without an English answer
+// marker. Validate the answer alphabet against the task/input, never against
+// the reference. Only a complete output or its final paragraph is eligible;
+// intermediate examples and reasoning are not searched for a matching answer.
+fn bbh_sequence_boundary(task: &Task, output: &str) -> (Option<String>, &'static str) {
+    let kind = task.id.split(':').nth(1).unwrap_or("");
+    if !["word_sorting", "dyck_languages"].contains(&kind) {
+        return (None, "missing_explicit_marker");
+    }
+    let current = task.prompt.rsplit_once("\n\nQ: ").map(|(_, q)| q);
+    let words = current
+        .and_then(|q| q.split_once("List:"))
+        .map(|(_, list)| list.split("\nA:").next().unwrap_or(list))
+        .map(|list| list.split_whitespace().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let valid = |text: &str| -> Option<String> {
+        let mut text = text.trim();
+        if let Some(body) = text.strip_prefix("```") {
+            let (_, body) = body.split_once('\n')?;
+            text = body.strip_suffix("```")?.trim();
+        }
+        text = bbh_presentation(text);
+        let tokens = text.split_whitespace().collect::<Vec<_>>();
+        if tokens.is_empty() {
+            return None;
+        }
+        if kind == "word_sorting" {
+            if words.is_empty() || !tokens.iter().all(|t| words.contains(t)) {
+                return None;
+            }
+        } else if !text
+            .chars()
+            .all(|c| c.is_whitespace() || ")]}>".contains(c))
+        {
+            return None;
+        }
+        Some(text.to_owned())
+    };
+    if let Some(answer) = valid(output) {
+        return (Some(answer), "whole_typed_sequence");
+    }
+    // A final fenced block may contain blank lines. Otherwise retain the last
+    // complete paragraph only, including emphasis/inline-code presentation.
+    let trimmed = output.trim();
+    let candidate = if trimmed.ends_with("```") {
+        trimmed[..trimmed.len() - 3]
+            .rfind("```")
+            .map(|start| &trimmed[start..])
+            .unwrap_or(trimmed)
+    } else {
+        trimmed
+            .rsplit("\n\n")
+            .find(|s| !s.trim().is_empty())
+            .unwrap_or("")
+    };
+    match valid(candidate) {
+        Some(answer) => (Some(answer), "trailing_typed_sequence"),
+        None => (None, "missing_explicit_marker"),
+    }
+}
+
 fn bbh_quote_presentation(text: &str) -> String {
     text.chars()
         .map(|ch| match ch {
@@ -658,7 +719,10 @@ pub fn upgrade_bbh_scores(run: &mut Run) -> usize {
                 && attempt.score.as_ref().is_some_and(|s| {
                     matches!(
                         s.scorer_version.as_str(),
-                        "bbh-marker-exact-v1" | "bbh-marker-exact-v2" | "bbh-marker-exact-v3"
+                        "bbh-marker-exact-v1"
+                            | "bbh-marker-exact-v2"
+                            | "bbh-marker-exact-v3"
+                            | "bbh-marker-exact-v4"
                     )
                 })
             {
@@ -695,7 +759,7 @@ fn bbh_score(task: &Task, output: &str) -> Score {
                     "원본자료 불완전: snarks:0088 선택지가 잘려 있습니다. 원본 보존, 점수 제외."
                 })
                 .into(),
-            scorer_version: "bbh-marker-exact-v4".into(),
+            scorer_version: "bbh-marker-exact-v5".into(),
             extra: json!({"error_code":if conflicting {"source_conflict"} else {"source_incomplete"},"original_preserved":true}),
         };
     }
@@ -705,6 +769,9 @@ fn bbh_score(task: &Task, output: &str) -> Score {
     let (mut raw_extracted, mut extraction_method) = bbh_extract(output);
     if extraction_method == "missing_explicit_marker" {
         (raw_extracted, extraction_method) = bbh_closed_boundary(task, output);
+        if extraction_method == "missing_explicit_marker" {
+            (raw_extracted, extraction_method) = bbh_sequence_boundary(task, output);
+        }
     } else if let Some(raw) = raw_extracted.as_deref() {
         if let Some(answer) = bbh_leading_closed(raw, bbh_closed_labels(task)) {
             raw_extracted = Some(answer.to_owned());
@@ -726,11 +793,11 @@ fn bbh_score(task: &Task, output: &str) -> Score {
             }
             None => "명시적 최종 답안 없음 · 임의 답안 추정 없음".into(),
         },
-        "bbh-marker-exact-v4",
+        "bbh-marker-exact-v5",
     );
     score.extra = json!({"extracted_answer":extracted,"official_extractor":false,
         "raw_extracted_answer":raw_extracted,"choice_normalization":choice_symbol.is_some().then_some("symbol_and_exact_current_option_text"),
-        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v4"});
+        "extraction_method":extraction_method,"metric":"exact_match","protocol":"bbh-marker-exact-v5"});
     score
 }
 
@@ -890,7 +957,7 @@ mod tests {
                 Some(if correct { 1.0 } else { 0.0 }),
                 "{output}"
             );
-            assert_eq!(result.scorer_version, "bbh-marker-exact-v4");
+            assert_eq!(result.scorer_version, "bbh-marker-exact-v5");
             assert_eq!(result.extra["official_extractor"], false);
         }
         assert_eq!(
@@ -1211,6 +1278,46 @@ mod tests {
         );
     }
     #[test]
+    fn bbh_v5_typed_sequences_use_input_not_reference() {
+        let mut t = task("bbh", json!("apple pear plum"));
+        t.id = "bbh:word_sorting:fixture".into();
+        t.prompt = "Examples.\n\nQ: Sort these words.\nList: plum apple pear\nA: Let's think step by step.".into();
+        for output in [
+            "apple pear plum",
+            "Sorted list:\n\n**apple pear plum**",
+            "Explanation.\n\n```text\napple pear plum\n```",
+        ] {
+            assert_eq!(bbh_score(&t, output).value, Some(1.0));
+        }
+        for output in [
+            "pear apple plum",
+            "apple pear",
+            "apple apple plum",
+            "apple pear plum\n\nI cannot decide.",
+            "apple pear plum or pear apple plum",
+        ] {
+            assert_eq!(bbh_score(&t, output).value, Some(0.0));
+        }
+        let a = bbh_sequence_boundary(&t, "pear apple plum");
+        t.answer = json!("pear apple plum");
+        assert_eq!(a, bbh_sequence_boundary(&t, "pear apple plum"));
+        t.id = "bbh:dyck_languages:fixture".into();
+        t.answer = json!("] )");
+        for output in [
+            "] )",
+            "The remaining sequence is:\n\n`] )`",
+            "Explanation.\n\n```\n] )\n```",
+        ] {
+            assert_eq!(bbh_score(&t, output).value, Some(1.0));
+        }
+        for output in [") ]", "] )\n\nNo final answer", "An example is ] )."] {
+            assert_eq!(bbh_score(&t, output).value, Some(0.0));
+        }
+        // An explicit final answer overrides a sequence elsewhere.
+        assert_eq!(bbh_score(&t, "Final answer: ) ]\n\n] )").value, Some(0.0));
+    }
+
+    #[test]
     fn bbh_score_migration_preserves_evidence_and_is_idempotent() {
         use crate::types::{Attempt, Item, Metrics};
         let previous = result(
@@ -1252,7 +1359,7 @@ mod tests {
             .score
             .as_mut()
             .unwrap()
-            .scorer_version = "bbh-marker-exact-v4".into();
+            .scorer_version = "bbh-marker-exact-v5".into();
         run.items[2].attempts[0]
             .score
             .as_mut()

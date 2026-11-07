@@ -476,7 +476,7 @@ export function renderReport(
       );
     return result;
   };
-  const profile =
+  const profile = cfg.pack_id?.startsWith("timed-") ? benchmarkLabel(cfg.pack_id) + " · 고정 발췌" :
     (
       {
         quick: "빠른 시험",
@@ -578,9 +578,12 @@ export function renderReport(
     body += block(
       48,
       756,
-      (cfg.profile === "quick"
-        ? "고정된 빠른 시험 표본이며 전체 평가 점수와 구분합니다. "
-        : "벤치마크별 채점 기준을 사용합니다. ") + (allSubjects.some(([, value]) => value.reference)
+      (cfg.pack_id?.startsWith("timed-")
+        ? "시간 기준 고정 발췌이며 공식 원본 전체 점수와 구분합니다. "
+        : cfg.profile === "quick"
+          ? "고정된 빠른 시험 표본이며 전체 평가 점수와 구분합니다. "
+          : "벤치마크별 채점 기준을 사용합니다. ") +
+      (allSubjects.some(([, value]) => value.reference)
         ? "자체 정형 지시는 JSON 형식·값 준수 참고 결과이며 일반 한국어 능력이나 종합 능력 점수가 아닙니다."
         : run.items?.some((item: Obj) => taskBenchmarkKey(item.task) === "bbh")
           ? "BBH는 문항 정확도로 표시하는 별도 확장 평가이며 고정 지능·종합 점수에는 포함하지 않습니다."

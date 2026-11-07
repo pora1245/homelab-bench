@@ -1,0 +1,208 @@
+{
+  "status": "completed",
+  "pack_version": "2026-11-08.1",
+  "suite_hash": "aba8f9fe83485a25b86a3738d137b8b7d9879d5163228ce9212451a279d83728",
+  "summary": {
+    "completed": 54,
+    "total": 54,
+    "correct": 43,
+    "incorrect": 11,
+    "partial": 0,
+    "errors": 0,
+    "score_errors": 0,
+    "truncated": 0,
+    "active_ms": 1216146.5114,
+    "scored": 54,
+    "unscored": 0,
+    "subjects": {
+      "고난도 수학": {
+        "accuracy_percent": 100.0,
+        "collected": 6,
+        "completed": 6,
+        "correct": 6,
+        "errors": 0,
+        "incorrect": 0,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 100.0,
+        "points": 6.0,
+        "score_errors": 0,
+        "scored": 6,
+        "total": 6,
+        "unscored": 0
+      },
+      "복합 논리 추론": {
+        "accuracy_percent": 81.25,
+        "collected": 16,
+        "completed": 16,
+        "correct": 13,
+        "errors": 0,
+        "incorrect": 3,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 81.25,
+        "points": 13.0,
+        "score_errors": 0,
+        "scored": 16,
+        "total": 16,
+        "unscored": 0
+      },
+      "수학 추론": {
+        "accuracy_percent": 60.0,
+        "collected": 5,
+        "completed": 5,
+        "correct": 3,
+        "errors": 0,
+        "incorrect": 2,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 60.0,
+        "points": 3.0,
+        "score_errors": 0,
+        "scored": 5,
+        "total": 5,
+        "unscored": 0
+      },
+      "지시 이행": {
+        "accuracy_percent": 100.0,
+        "collected": 5,
+        "completed": 5,
+        "correct": 5,
+        "errors": 0,
+        "incorrect": 0,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 100.0,
+        "points": 5.0,
+        "score_errors": 0,
+        "scored": 5,
+        "total": 5,
+        "unscored": 0
+      },
+      "지식·논리": {
+        "accuracy_percent": 70.0,
+        "collected": 10,
+        "completed": 10,
+        "correct": 7,
+        "errors": 0,
+        "incorrect": 3,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 70.0,
+        "points": 7.0,
+        "score_errors": 0,
+        "scored": 10,
+        "total": 10,
+        "unscored": 0
+      },
+      "코드": {
+        "accuracy_percent": 75.0,
+        "collected": 12,
+        "completed": 12,
+        "correct": 9,
+        "errors": 0,
+        "incorrect": 3,
+        "measured": 0,
+        "measurement_errors": 0,
+        "partial": 0,
+        "percent": 75.0,
+        "points": 9.0,
+        "score_errors": 0,
+        "scored": 12,
+        "total": 12,
+        "unscored": 0
+      }
+    },
+    "decode_tps": {
+      "max": 90.1,
+      "median": 57.4,
+      "min": 50.1,
+      "n": 54
+    },
+    "ttft_ms": {
+      "max": 115666.01640000001,
+      "median": 9980.91435,
+      "min": 1676.9258,
+      "n": 54
+    },
+    "prefill_tps": {
+      "max": 859.9,
+      "median": 505.25,
+      "min": 14.1,
+      "n": 54
+    },
+    "client_visible_decode_tps": {
+      "max": 76.07296825486748,
+      "median": 63.02405145284264,
+      "min": 44.02820566695113,
+      "n": 54
+    },
+    "metric_quality": {
+      "eligible": 54,
+      "metrics": {
+        "client_visible_decode_tps": {
+          "excluded": 0,
+          "missing": 0,
+          "reasons": {},
+          "valid": 54
+        },
+        "decode_tps": {
+          "excluded": 0,
+          "missing": 0,
+          "reasons": {},
+          "valid": 54
+        },
+        "prefill_tps": {
+          "excluded": 0,
+          "missing": 0,
+          "reasons": {},
+          "valid": 54
+        },
+        "throughput": {
+          "excluded": 0,
+          "missing": 0,
+          "reasons": {},
+          "valid": 54
+        },
+        "ttft_ms": {
+          "excluded": 0,
+          "missing": 0,
+          "reasons": {},
+          "valid": 54
+        }
+      },
+      "recent_missing": {
+        "client_visible_decode_tps": 0,
+        "decode_tps": 0,
+        "prefill_tps": 0,
+        "throughput": 0,
+        "ttft_ms": 0
+      },
+      "recent_sample_count": 20,
+      "version": "metric-integrity-v1"
+    }
+  },
+  "total_generated_tokens": 67420,
+  "generation_seconds_at_60": 1123.6666666666667,
+  "actual_reference_ratio": 2.0995920401108656,
+  "scorer_versions": {
+    "numeric-last-v1 (공식 점수와 별도인 추출 규칙)": 5,
+    "math-verify-0.9.0": 6,
+    "mmlu-choice-v1": 10,
+    "bbh-marker-exact-v5": 16,
+    "ifeval-107e3347-strict": 5,
+    "humaneval-6d43fb98-official-v1": 4,
+    "mbpp-f82046ba-official-assertions-docker-v1": 8
+  },
+  "scoring_states": {
+    "scored": 54
+  },
+  "private_raw_saved": true,
+  "model": "qwen3.8-flash-next-iq3_xxs-3060",
+  "concurrency": 1
+}

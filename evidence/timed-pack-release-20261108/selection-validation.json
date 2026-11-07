@@ -1,0 +1,581 @@
+{
+  "checks": {
+    "deterministic_manifest": true,
+    "nested": true,
+    "no_duplicates": true,
+    "seven_sources_each_pack": true,
+    "all_27_bbh_types_in_8h": true,
+    "all_14_mmlu_fields_in_8h": true,
+    "budget_not_exceeded": true
+  },
+  "original_scored_baseline": {
+    "numeric": {
+      "n": 1319,
+      "saved_answer_accuracy_percent": 96.82
+    },
+    "math": {
+      "n": 500,
+      "saved_answer_accuracy_percent": 96.8
+    },
+    "choice": {
+      "n": 12032,
+      "saved_answer_accuracy_percent": 86.43
+    },
+    "bbh": {
+      "n": 6506,
+      "saved_answer_accuracy_percent": 89.09
+    },
+    "ifeval": {
+      "n": 541,
+      "saved_answer_accuracy_percent": 87.99
+    },
+    "humaneval": {
+      "n": 164,
+      "saved_answer_accuracy_percent": 85.37
+    },
+    "mbpp": {
+      "n": 500,
+      "saved_answer_accuracy_percent": 94.8
+    }
+  },
+  "seed_sensitivity": [
+    {
+      "seed": "timed-60-v1",
+      "packs": [
+        {
+          "id": "timed-10m-v1",
+          "count": 54,
+          "planned_seconds": 595.1833333333333,
+          "by_source": {
+            "numeric": {
+              "n": 5,
+              "saved_answer_accuracy_percent": 40.0,
+              "difference_from_original_pp": -56.82
+            },
+            "math": {
+              "n": 6,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 3.2
+            },
+            "choice": {
+              "n": 10,
+              "saved_answer_accuracy_percent": 50.0,
+              "difference_from_original_pp": -36.43
+            },
+            "bbh": {
+              "n": 16,
+              "saved_answer_accuracy_percent": 81.25,
+              "difference_from_original_pp": -7.84
+            },
+            "ifeval": {
+              "n": 5,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 12.01
+            },
+            "humaneval": {
+              "n": 4,
+              "saved_answer_accuracy_percent": 25.0,
+              "difference_from_original_pp": -60.37
+            },
+            "mbpp": {
+              "n": 8,
+              "saved_answer_accuracy_percent": 62.5,
+              "difference_from_original_pp": -32.3
+            }
+          }
+        },
+        {
+          "id": "timed-1h-v1",
+          "count": 259,
+          "planned_seconds": 3594.516666666667,
+          "by_source": {
+            "numeric": {
+              "n": 18,
+              "saved_answer_accuracy_percent": 61.11,
+              "difference_from_original_pp": -35.71
+            },
+            "math": {
+              "n": 27,
+              "saved_answer_accuracy_percent": 96.3,
+              "difference_from_original_pp": -0.5
+            },
+            "choice": {
+              "n": 59,
+              "saved_answer_accuracy_percent": 45.76,
+              "difference_from_original_pp": -40.67
+            },
+            "bbh": {
+              "n": 88,
+              "saved_answer_accuracy_percent": 71.59,
+              "difference_from_original_pp": -17.5
+            },
+            "ifeval": {
+              "n": 18,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 12.01
+            },
+            "humaneval": {
+              "n": 16,
+              "saved_answer_accuracy_percent": 37.5,
+              "difference_from_original_pp": -47.87
+            },
+            "mbpp": {
+              "n": 33,
+              "saved_answer_accuracy_percent": 69.7,
+              "difference_from_original_pp": -25.1
+            }
+          }
+        },
+        {
+          "id": "timed-4h-v1",
+          "count": 995,
+          "planned_seconds": 14394.933333333332,
+          "by_source": {
+            "numeric": {
+              "n": 42,
+              "saved_answer_accuracy_percent": 71.43,
+              "difference_from_original_pp": -25.39
+            },
+            "math": {
+              "n": 111,
+              "saved_answer_accuracy_percent": 93.69,
+              "difference_from_original_pp": -3.11
+            },
+            "choice": {
+              "n": 293,
+              "saved_answer_accuracy_percent": 49.83,
+              "difference_from_original_pp": -36.6
+            },
+            "bbh": {
+              "n": 323,
+              "saved_answer_accuracy_percent": 73.37,
+              "difference_from_original_pp": -15.72
+            },
+            "ifeval": {
+              "n": 60,
+              "saved_answer_accuracy_percent": 95.0,
+              "difference_from_original_pp": 7.01
+            },
+            "humaneval": {
+              "n": 47,
+              "saved_answer_accuracy_percent": 55.32,
+              "difference_from_original_pp": -30.05
+            },
+            "mbpp": {
+              "n": 119,
+              "saved_answer_accuracy_percent": 91.6,
+              "difference_from_original_pp": -3.2
+            }
+          }
+        },
+        {
+          "id": "timed-8h-v1",
+          "count": 1959,
+          "planned_seconds": 28796.783333333333,
+          "by_source": {
+            "numeric": {
+              "n": 70,
+              "saved_answer_accuracy_percent": 75.71,
+              "difference_from_original_pp": -21.11
+            },
+            "math": {
+              "n": 240,
+              "saved_answer_accuracy_percent": 95.83,
+              "difference_from_original_pp": -0.97
+            },
+            "choice": {
+              "n": 561,
+              "saved_answer_accuracy_percent": 49.91,
+              "difference_from_original_pp": -36.52
+            },
+            "bbh": {
+              "n": 622,
+              "saved_answer_accuracy_percent": 78.14,
+              "difference_from_original_pp": -10.95
+            },
+            "ifeval": {
+              "n": 130,
+              "saved_answer_accuracy_percent": 93.08,
+              "difference_from_original_pp": 5.09
+            },
+            "humaneval": {
+              "n": 95,
+              "saved_answer_accuracy_percent": 77.89,
+              "difference_from_original_pp": -7.48
+            },
+            "mbpp": {
+              "n": 241,
+              "saved_answer_accuracy_percent": 95.85,
+              "difference_from_original_pp": 1.05
+            }
+          }
+        }
+      ],
+      "excluded": {
+        "length_review": 448,
+        "invalid_or_unavailable": 5,
+        "extraction_review": 373,
+        "identical_duplicate": 1
+      }
+    },
+    {
+      "seed": "timed-60-v1-check-a",
+      "packs": [
+        {
+          "id": "timed-10m-v1",
+          "count": 56,
+          "planned_seconds": 595.2833333333333,
+          "by_source": {
+            "numeric": {
+              "n": 4,
+              "saved_answer_accuracy_percent": 50.0,
+              "difference_from_original_pp": -46.82
+            },
+            "math": {
+              "n": 10,
+              "saved_answer_accuracy_percent": 90.0,
+              "difference_from_original_pp": -6.8
+            },
+            "choice": {
+              "n": 7,
+              "saved_answer_accuracy_percent": 71.43,
+              "difference_from_original_pp": -15.0
+            },
+            "bbh": {
+              "n": 14,
+              "saved_answer_accuracy_percent": 57.14,
+              "difference_from_original_pp": -31.95
+            },
+            "ifeval": {
+              "n": 6,
+              "saved_answer_accuracy_percent": 83.33,
+              "difference_from_original_pp": -4.66
+            },
+            "humaneval": {
+              "n": 6,
+              "saved_answer_accuracy_percent": 50.0,
+              "difference_from_original_pp": -35.37
+            },
+            "mbpp": {
+              "n": 9,
+              "saved_answer_accuracy_percent": 55.56,
+              "difference_from_original_pp": -39.24
+            }
+          }
+        },
+        {
+          "id": "timed-1h-v1",
+          "count": 297,
+          "planned_seconds": 3597.2,
+          "by_source": {
+            "numeric": {
+              "n": 25,
+              "saved_answer_accuracy_percent": 64.0,
+              "difference_from_original_pp": -32.82
+            },
+            "math": {
+              "n": 37,
+              "saved_answer_accuracy_percent": 97.3,
+              "difference_from_original_pp": 0.5
+            },
+            "choice": {
+              "n": 88,
+              "saved_answer_accuracy_percent": 54.55,
+              "difference_from_original_pp": -31.88
+            },
+            "bbh": {
+              "n": 79,
+              "saved_answer_accuracy_percent": 67.09,
+              "difference_from_original_pp": -22.0
+            },
+            "ifeval": {
+              "n": 22,
+              "saved_answer_accuracy_percent": 90.91,
+              "difference_from_original_pp": 2.92
+            },
+            "humaneval": {
+              "n": 15,
+              "saved_answer_accuracy_percent": 53.33,
+              "difference_from_original_pp": -32.04
+            },
+            "mbpp": {
+              "n": 31,
+              "saved_answer_accuracy_percent": 67.74,
+              "difference_from_original_pp": -27.06
+            }
+          }
+        },
+        {
+          "id": "timed-4h-v1",
+          "count": 1013,
+          "planned_seconds": 14394.65,
+          "by_source": {
+            "numeric": {
+              "n": 49,
+              "saved_answer_accuracy_percent": 73.47,
+              "difference_from_original_pp": -23.35
+            },
+            "math": {
+              "n": 99,
+              "saved_answer_accuracy_percent": 94.95,
+              "difference_from_original_pp": -1.85
+            },
+            "choice": {
+              "n": 312,
+              "saved_answer_accuracy_percent": 52.56,
+              "difference_from_original_pp": -33.87
+            },
+            "bbh": {
+              "n": 315,
+              "saved_answer_accuracy_percent": 71.43,
+              "difference_from_original_pp": -17.66
+            },
+            "ifeval": {
+              "n": 65,
+              "saved_answer_accuracy_percent": 90.77,
+              "difference_from_original_pp": 2.78
+            },
+            "humaneval": {
+              "n": 49,
+              "saved_answer_accuracy_percent": 61.22,
+              "difference_from_original_pp": -24.15
+            },
+            "mbpp": {
+              "n": 124,
+              "saved_answer_accuracy_percent": 91.94,
+              "difference_from_original_pp": -2.86
+            }
+          }
+        },
+        {
+          "id": "timed-8h-v1",
+          "count": 1942,
+          "planned_seconds": 28797.133333333335,
+          "by_source": {
+            "numeric": {
+              "n": 82,
+              "saved_answer_accuracy_percent": 76.83,
+              "difference_from_original_pp": -19.99
+            },
+            "math": {
+              "n": 211,
+              "saved_answer_accuracy_percent": 95.26,
+              "difference_from_original_pp": -1.54
+            },
+            "choice": {
+              "n": 577,
+              "saved_answer_accuracy_percent": 53.03,
+              "difference_from_original_pp": -33.4
+            },
+            "bbh": {
+              "n": 622,
+              "saved_answer_accuracy_percent": 76.37,
+              "difference_from_original_pp": -12.72
+            },
+            "ifeval": {
+              "n": 116,
+              "saved_answer_accuracy_percent": 93.1,
+              "difference_from_original_pp": 5.11
+            },
+            "humaneval": {
+              "n": 99,
+              "saved_answer_accuracy_percent": 78.79,
+              "difference_from_original_pp": -6.58
+            },
+            "mbpp": {
+              "n": 235,
+              "saved_answer_accuracy_percent": 95.74,
+              "difference_from_original_pp": 0.94
+            }
+          }
+        }
+      ],
+      "excluded": {
+        "length_review": 448,
+        "invalid_or_unavailable": 5,
+        "extraction_review": 373,
+        "identical_duplicate": 1
+      }
+    },
+    {
+      "seed": "timed-60-v1-check-b",
+      "packs": [
+        {
+          "id": "timed-10m-v1",
+          "count": 60,
+          "planned_seconds": 596.9333333333333,
+          "by_source": {
+            "numeric": {
+              "n": 7,
+              "saved_answer_accuracy_percent": 57.14,
+              "difference_from_original_pp": -39.68
+            },
+            "math": {
+              "n": 8,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 3.2
+            },
+            "choice": {
+              "n": 15,
+              "saved_answer_accuracy_percent": 93.33,
+              "difference_from_original_pp": 6.9
+            },
+            "bbh": {
+              "n": 15,
+              "saved_answer_accuracy_percent": 73.33,
+              "difference_from_original_pp": -15.76
+            },
+            "ifeval": {
+              "n": 5,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 12.01
+            },
+            "humaneval": {
+              "n": 2,
+              "saved_answer_accuracy_percent": 0.0,
+              "difference_from_original_pp": -85.37
+            },
+            "mbpp": {
+              "n": 8,
+              "saved_answer_accuracy_percent": 50.0,
+              "difference_from_original_pp": -44.8
+            }
+          }
+        },
+        {
+          "id": "timed-1h-v1",
+          "count": 260,
+          "planned_seconds": 3598.2166666666667,
+          "by_source": {
+            "numeric": {
+              "n": 17,
+              "saved_answer_accuracy_percent": 64.71,
+              "difference_from_original_pp": -32.11
+            },
+            "math": {
+              "n": 25,
+              "saved_answer_accuracy_percent": 100.0,
+              "difference_from_original_pp": 3.2
+            },
+            "choice": {
+              "n": 71,
+              "saved_answer_accuracy_percent": 63.38,
+              "difference_from_original_pp": -23.05
+            },
+            "bbh": {
+              "n": 72,
+              "saved_answer_accuracy_percent": 65.28,
+              "difference_from_original_pp": -23.81
+            },
+            "ifeval": {
+              "n": 18,
+              "saved_answer_accuracy_percent": 94.44,
+              "difference_from_original_pp": 6.45
+            },
+            "humaneval": {
+              "n": 14,
+              "saved_answer_accuracy_percent": 35.71,
+              "difference_from_original_pp": -49.66
+            },
+            "mbpp": {
+              "n": 43,
+              "saved_answer_accuracy_percent": 76.74,
+              "difference_from_original_pp": -18.06
+            }
+          }
+        },
+        {
+          "id": "timed-4h-v1",
+          "count": 941,
+          "planned_seconds": 14395.45,
+          "by_source": {
+            "numeric": {
+              "n": 45,
+              "saved_answer_accuracy_percent": 73.33,
+              "difference_from_original_pp": -23.49
+            },
+            "math": {
+              "n": 102,
+              "saved_answer_accuracy_percent": 97.06,
+              "difference_from_original_pp": 0.26
+            },
+            "choice": {
+              "n": 226,
+              "saved_answer_accuracy_percent": 56.64,
+              "difference_from_original_pp": -29.79
+            },
+            "bbh": {
+              "n": 307,
+              "saved_answer_accuracy_percent": 71.01,
+              "difference_from_original_pp": -18.08
+            },
+            "ifeval": {
+              "n": 68,
+              "saved_answer_accuracy_percent": 97.06,
+              "difference_from_original_pp": 9.07
+            },
+            "humaneval": {
+              "n": 51,
+              "saved_answer_accuracy_percent": 58.82,
+              "difference_from_original_pp": -26.55
+            },
+            "mbpp": {
+              "n": 142,
+              "saved_answer_accuracy_percent": 92.96,
+              "difference_from_original_pp": -1.84
+            }
+          }
+        },
+        {
+          "id": "timed-8h-v1",
+          "count": 1878,
+          "planned_seconds": 28797.366666666665,
+          "by_source": {
+            "numeric": {
+              "n": 83,
+              "saved_answer_accuracy_percent": 77.11,
+              "difference_from_original_pp": -19.71
+            },
+            "math": {
+              "n": 216,
+              "saved_answer_accuracy_percent": 96.3,
+              "difference_from_original_pp": -0.5
+            },
+            "choice": {
+              "n": 485,
+              "saved_answer_accuracy_percent": 55.05,
+              "difference_from_original_pp": -31.38
+            },
+            "bbh": {
+              "n": 615,
+              "saved_answer_accuracy_percent": 76.26,
+              "difference_from_original_pp": -12.83
+            },
+            "ifeval": {
+              "n": 125,
+              "saved_answer_accuracy_percent": 95.2,
+              "difference_from_original_pp": 7.21
+            },
+            "humaneval": {
+              "n": 101,
+              "saved_answer_accuracy_percent": 79.21,
+              "difference_from_original_pp": -6.16
+            },
+            "mbpp": {
+              "n": 253,
+              "saved_answer_accuracy_percent": 96.05,
+              "difference_from_original_pp": 1.25
+            }
+          }
+        }
+      ],
+      "excluded": {
+        "length_review": 448,
+        "invalid_or_unavailable": 5,
+        "extraction_review": 373,
+        "identical_duplicate": 1
+      }
+    }
+  ],
+  "interpretation": "Saved responses only; same-answer subset comparison, not a new model benchmark. Original baseline includes scored length/extraction-review failures; selected packs exclude those and use outcome strata. Scores are not an unbiased estimate of original full accuracy. Seed variants never replace the frozen release seed based on score."
+}

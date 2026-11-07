@@ -1,0 +1,22 @@
+{
+  "mac": {
+    "status": "verified",
+    "old_pid": 98862,
+    "new_pid": 12235,
+    "all_records_exact": true,
+    "binary_sha256": "285e24f90fb7d8b00f9debb67c885604041132852eb5b9a0b092168d30712ed8"
+  },
+  "windows": {
+    "preserved": true,
+    "previous_process": 6356,
+    "new_process": 34212,
+    "completed_before_update": [
+      21580,
+      3599,
+      102
+    ],
+    "source_zip_sha256": "7aa093c047904af874ea36b626d2f3b8b832f249e38c25b893ffe6012354feb2",
+    "executable_sha256": "b72b38d6761656391038ed0978f0c2250a2a79c0303c49893186f42916142db2"
+  },
+  "scope": "task order, original answers/reasoning/raw/metrics, non-BBH rows, telemetry, settings and credentials preserved; private detailed evidence retained locally"
+}

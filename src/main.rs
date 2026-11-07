@@ -1,3 +1,4 @@
+mod timed_packs;
 mod auto_concurrency;
 mod concurrency_guard;
 mod metrics_quality;
@@ -244,6 +245,9 @@ async fn main() -> anyhow::Result<()> {
             tasks,
         };
         packs.insert(combined.id.clone(), combined);
+    }
+    for pack in timed_packs::load(std::path::Path::new("."))? {
+        packs.insert(pack.id.clone(), pack);
     }
     let (events, _) = broadcast::channel(128);
     let app = App {
@@ -1207,7 +1211,7 @@ mod performance_upgrade_tests {
         assert_eq!(evidence_before, evidence_after);
         let score = after.items[0].attempts[0].score.as_ref().unwrap();
         assert_eq!(score.value, Some(1.0));
-        assert_eq!(score.scorer_version, "bbh-marker-exact-v4");
+        assert_eq!(score.scorer_version, "bbh-marker-exact-v5");
         assert_eq!(score.extra["grading_history"][0]["score"]["value"], 0.0);
         let row_after: (String,) = sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture' AND position=1")
             .fetch_one(&s.db).await.unwrap();
@@ -1276,7 +1280,7 @@ mod performance_upgrade_tests {
         upgrade_bbh_records(&s).await.unwrap();
         let after = s.runs.lock().await["fixture"].clone();
         let score = after.items[0].attempts[0].score.as_ref().unwrap();
-        assert_eq!(score.scorer_version, "bbh-marker-exact-v4");
+        assert_eq!(score.scorer_version, "bbh-marker-exact-v5");
         assert_eq!(score.value, Some(1.0));
         let versions = score.extra["grading_history"].as_array().unwrap().iter()
             .map(|event| event["score"]["scorer_version"].as_str().unwrap())
