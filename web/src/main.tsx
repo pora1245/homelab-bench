@@ -1569,7 +1569,7 @@ function Hardware({ run, onManage }: { run: Obj; onManage: () => void }) {
           ))}
           <TelemetryChart samples={run.telemetry || []} />
           <div className="telemetry-footer">
-            시험 중 {number(run.telemetry?.length, 0)}개 표본 · 마지막{" "}
+            시험 중 {number(run.telemetry_count ?? run.telemetry?.length, 0)}개 표본 · 마지막{" "}
             {time(sample.received_at)}
             {sample.error && <span className="warning"> · {sample.error}</span>}
           </div>

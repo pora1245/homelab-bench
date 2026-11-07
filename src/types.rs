@@ -302,6 +302,28 @@ impl Run {
             })
             .unwrap_or(self.initial_concurrency.unwrap_or(self.config.concurrency))
     }
+    /// Copy only fields needed by the live view while holding the run lock.
+    /// Expensive metrics/JSON work is performed after releasing that lock.
+    pub fn compact_snapshot(&self) -> Self {
+        Self {
+            id: self.id.clone(), created_at: self.created_at.clone(), config: self.config.clone(),
+            status: self.status.clone(), suite_hash: self.suite_hash.clone(),
+            protocol_version: self.protocol_version.clone(), pack_version: self.pack_version.clone(),
+            provenance: self.provenance.clone(), active_ms: self.active_ms, error: self.error.clone(),
+            execution_segments: self.execution_segments.clone(), initial_concurrency: self.initial_concurrency,
+            concurrency_tuning: self.concurrency_tuning.clone(),
+            telemetry: self.telemetry.iter().skip(self.telemetry.len().saturating_sub(300)).cloned().collect(),
+            items: self.items.iter().map(|i| Item {
+                status: i.status.clone(), task: Task { id:i.task.id.clone(), subject:i.task.subject.clone(),
+                    scorer:i.task.scorer.clone(), max_tokens:i.task.max_tokens, prompt:String::new(), answer:Value::Null,
+                    meta:serde_json::json!({"performance_protocol":i.task.meta["performance_protocol"],
+                      "prompt_sha256":i.task.meta["prompt_sha256"],"experience_case":i.task.meta["experience_case"],"warmup":i.task.meta["warmup"]}) },
+                attempts:i.attempts.iter().map(|a| Attempt {started_at:a.started_at.clone(),ended_at:a.ended_at.clone(),
+                    output:String::new(),reasoning:String::new(),finish_reason:a.finish_reason.clone(),error:a.error.clone(),
+                    metrics:a.metrics.clone(),score:a.score.clone(),raw:vec![]}).collect()
+            }).collect(),
+        }
+    }
     pub fn compact(&self) -> Value {
         let items=self.items.iter().map(|i|serde_json::json!({
             "task":{"id":i.task.id,"subject":i.task.subject,"scorer":i.task.scorer,"max_tokens":i.task.max_tokens,"prompt":"","answer":null,"meta":{
@@ -311,7 +333,7 @@ impl Run {
                 "warmup":i.task.meta["warmup"]}},
             "status":i.status,"verdict":i.verdict(),"attempts":i.attempts.iter().map(|a|serde_json::json!({"started_at":a.started_at,"ended_at":a.ended_at,"output":"","reasoning":"","finish_reason":a.finish_reason,"error":a.error,"metrics":a.metrics,"metric_quality":crate::metrics_quality::evaluate(&a.metrics),"score":a.score.as_ref().map(|s|serde_json::json!({"value":s.value,"state":s.state,"detail":s.detail,"scorer_version":s.scorer_version,"extra":{"valid_output":s.extra["valid_output"],"format_compliant":s.extra["format_compliant"],"presentation_wrapper":s.extra["presentation_wrapper"],"experience_case":s.extra["experience_case"],"warmup":s.extra["warmup"],"error_code":s.extra["error_code"],"remedy":s.extra["remedy"],"graded_at":s.extra["graded_at"],"grading_history_count":s.extra["grading_history"].as_array().map(|a|a.len()).unwrap_or(0)}})),"raw":null})).collect::<Vec<_>>()
         })).collect::<Vec<_>>();
-        serde_json::json!({"id":self.id,"created_at":self.created_at,"config":self.config,"status":self.status,"suite_hash":self.suite_hash,"protocol_version":self.protocol_version,"pack_version":self.pack_version,"provenance":self.provenance,"items":items,"telemetry":self.telemetry,"active_ms":self.active_ms,"error":self.error,"execution_segments":self.execution_segments,"initial_concurrency":self.initial_concurrency,"concurrency_tuning":self.concurrency_tuning.as_ref().map(|t|t.public(false,true)),"summary":self.summary()})
+        serde_json::json!({"id":self.id,"created_at":self.created_at,"config":self.config,"status":self.status,"suite_hash":self.suite_hash,"protocol_version":self.protocol_version,"pack_version":self.pack_version,"provenance":self.provenance,"items":items,"telemetry":self.telemetry.iter().skip(self.telemetry.len().saturating_sub(300)).collect::<Vec<_>>(),"telemetry_count":self.telemetry.len(),"telemetry_truncated":self.telemetry.len()>300,"active_ms":self.active_ms,"error":self.error,"execution_segments":self.execution_segments,"initial_concurrency":self.initial_concurrency,"concurrency_tuning":self.concurrency_tuning.as_ref().map(|t|t.public(false,true)),"summary":self.summary()})
     }
 
     pub fn public(&self, raw: bool) -> Value {

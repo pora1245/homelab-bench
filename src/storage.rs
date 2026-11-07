@@ -1,7 +1,8 @@
 //! Incremental SQLite checkpoints: unchanged questions are not rewritten for every token.
 use crate::{App, types::*};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_json::value::RawValue;
 use sqlx::SqlitePool;
 #[derive(Serialize)]
 struct Header<'a> {
@@ -13,7 +14,7 @@ struct Header<'a> {
     protocol_version: &'a str,
     pack_version: &'a str,
     provenance: &'a str,
-    telemetry: &'a Vec<Value>,
+    telemetry: [u8; 0],
     active_ms: f64,
     error: &'a Option<String>,
     execution_segments: &'a Vec<Value>,
@@ -33,7 +34,7 @@ fn header(r: &Run) -> Header<'_> {
         protocol_version: &r.protocol_version,
         pack_version: &r.pack_version,
         provenance: &r.provenance,
-        telemetry: &r.telemetry,
+        telemetry: [],
         active_ms: r.active_ms,
         error: &r.error,
         execution_segments: &r.execution_segments,
@@ -42,24 +43,143 @@ fn header(r: &Run) -> Header<'_> {
         items: [],
     }
 }
+// Ordered telemetry is append-only and is stored separately from frequently
+// updated run metadata. Retaining every sample must not make each checkpoint
+// proportional to the complete history.
+async fn append_telemetry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: &str,
+    samples: &[Value],
+) -> anyhow::Result<()> {
+    let (next,): (i64,) =
+        sqlx::query_as("SELECT COALESCE(MAX(position)+1,0) FROM run_telemetry WHERE run_id=?")
+            .bind(id)
+            .fetch_one(&mut **tx)
+            .await?;
+    anyhow::ensure!(
+        next >= 0 && next as usize <= samples.len(),
+        "저장된 장비 기록보다 짧은 이력으로 덮어쓸 수 없습니다"
+    );
+    for (offset, chunk) in samples[next as usize..].chunks(200).enumerate() {
+        let start = next as usize + offset * 200;
+        let bodies = chunk
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut query = sqlx::QueryBuilder::new("INSERT INTO run_telemetry(run_id,position,body) ");
+        query.push_values(bodies.iter().enumerate(), |mut row, (i, body)| {
+            row.push_bind(id)
+                .push_bind((start + i) as i64)
+                .push_bind(body);
+        });
+        query.build().execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+async fn load_telemetry(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    id: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT position,body FROM run_telemetry WHERE run_id=? ORDER BY position")
+            .bind(id)
+            .fetch_all(&mut **tx)
+            .await?;
+    rows.into_iter()
+        .enumerate()
+        .map(|(expected, (position, body))| {
+            anyhow::ensure!(
+                position == expected as i64,
+                "장비 기록 순서에 공백이 있어 복원을 중단합니다"
+            );
+            Ok(serde_json::from_str(&body)?)
+        })
+        .collect()
+}
 pub async fn init(db: &SqlitePool) -> anyhow::Result<()> {
     sqlx::query("CREATE TABLE IF NOT EXISTS run_items(run_id TEXT NOT NULL,position INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(run_id,position))").execute(db).await?;
     sqlx::query("CREATE TABLE IF NOT EXISTS run_trash(run_id TEXT PRIMARY KEY,deleted_at TEXT NOT NULL,metadata TEXT NOT NULL)").execute(db).await?;
+    sqlx::query("CREATE TABLE IF NOT EXISTS run_telemetry(run_id TEXT NOT NULL,position INTEGER NOT NULL,body TEXT NOT NULL,PRIMARY KEY(run_id,position))").execute(db).await?;
+    // Migrate all legacy runs, including soft-deleted ones, atomically. Do not
+    // deserialize/rewrite answer rows or unrelated header fields.
+    let mut tx = db.begin().await?;
+    let ids: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM runs WHERE json_array_length(body,'$.telemetry') > 0 ORDER BY id",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id,) in ids {
+        let (body,): (String,) = sqlx::query_as("SELECT body FROM runs WHERE id=?")
+            .bind(&id)
+            .fetch_one(&mut *tx)
+            .await?;
+        // Borrow the original JSON tokens. Parsing legacy floating-point
+        // values into Value and reserializing them can change their last bit.
+        // Existing evidence must retain the exact original number spelling.
+        #[derive(Deserialize)]
+        struct LegacyTelemetry<'a> {
+            #[serde(borrow)]
+            telemetry: Vec<&'a RawValue>,
+        }
+        let legacy: LegacyTelemetry<'_> = serde_json::from_str(&body)?;
+        let existing: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT position,body FROM run_telemetry WHERE run_id=? ORDER BY position",
+        )
+        .bind(&id)
+        .fetch_all(&mut *tx)
+        .await?;
+        anyhow::ensure!(
+            existing.len() <= legacy.telemetry.len()
+                && existing
+                    .iter()
+                    .enumerate()
+                    .all(|(i, (position, old))| *position == i as i64
+                        && old == legacy.telemetry[i].get()),
+            "기존 장비 기록과 분리 저장된 기록이 일치하지 않아 이전을 중단합니다"
+        );
+        for (offset, chunk) in legacy.telemetry[existing.len()..].chunks(200).enumerate() {
+            let start = existing.len() + offset * 200;
+            let mut query =
+                sqlx::QueryBuilder::new("INSERT INTO run_telemetry(run_id,position,body) ");
+            query.push_values(chunk.iter().enumerate(), |mut row, (i, sample)| {
+                row.push_bind(&id)
+                    .push_bind((start + i) as i64)
+                    .push_bind(sample.get());
+            });
+            query.build().execute(&mut *tx).await?;
+        }
+        sqlx::query("UPDATE runs SET body=json_set(body,'$.telemetry',json('[]')) WHERE id=?")
+            .bind(&id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 pub async fn load_items(db: &SqlitePool, r: &mut Run) -> anyhow::Result<()> {
-    if !r.items.is_empty() {
-        return Ok(());
+    let mut tx = db.begin().await?;
+    if r.items.is_empty() {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("SELECT body FROM run_items WHERE run_id=? ORDER BY position")
+                .bind(&r.id)
+                .fetch_all(&mut *tx)
+                .await?;
+        r.items = rows
+            .into_iter()
+            .map(|(b,)| Ok(serde_json::from_str(&b)?))
+            .collect::<anyhow::Result<Vec<_>>>()?;
     }
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT body FROM run_items WHERE run_id=? ORDER BY position")
-            .bind(&r.id)
-            .fetch_all(db)
-            .await?;
-    r.items = rows
-        .into_iter()
-        .map(|(b,)| Ok(serde_json::from_str(&b)?))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let telemetry = load_telemetry(&mut tx, &r.id).await?;
+    // An imported in-memory run may still carry its own unsaved history.
+    if r.telemetry.is_empty() {
+        r.telemetry = telemetry;
+    } else {
+        anyhow::ensure!(
+            telemetry.is_empty() || telemetry == r.telemetry,
+            "장비 기록이 저장된 이력과 일치하지 않습니다"
+        );
+    }
+    tx.commit().await?;
     Ok(())
 }
 pub async fn save(s: &App, r: &Run, all: bool) -> anyhow::Result<()> {
@@ -86,6 +206,7 @@ async fn save_with_trash(
             .unwrap_or_default()
     };
     let mut tx = s.db.begin().await?;
+    append_telemetry(&mut tx, &r.id, &r.telemetry).await?;
     let head = header(r);
     sqlx::query(
         "INSERT INTO runs(id,body) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
@@ -157,6 +278,7 @@ pub async fn restore(db: &SqlitePool, id: &str) -> anyhow::Result<Run> {
             .map(|(body,)| serde_json::from_str(&body))
             .collect::<Result<Vec<_>, _>>()?;
     }
+    r.telemetry = load_telemetry(&mut tx, id).await?;
     anyhow::ensure!(
         !r.items.is_empty(),
         "복구할 시험 문항이 없어 삭제 표식을 유지합니다"
@@ -389,5 +511,235 @@ mod segment_persistence_tests {
         assert_eq!(body, original);
         assert_eq!(s.runs.lock().await["fixture"].items[1].status, "done");
         server.abort();
+    }
+}
+
+#[cfg(test)]
+mod telemetry_persistence_tests {
+    use super::*;
+    use serde_json::json;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn database() -> SqlitePool {
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE runs(id TEXT PRIMARY KEY,body TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        db
+    }
+    fn fixture(id: &str, telemetry: Vec<Value>) -> Run {
+        serde_json::from_value(json!({"id":id,"created_at":"2026-01-01T00:00:00Z","config":{"name":"fixture","base_url":"http://localhost:1/v1","model":"fixture","pack_id":"fixture","profile":"full","temperature":0,"max_tokens":32,"concurrency":8,"timeout_s":5},"status":"paused","suite_hash":"keep-suite","protocol_version":"fixture","pack_version":"fixture","provenance":"fixture","items":[],"telemetry":telemetry,"active_ms":1000,"error":null})).unwrap()
+    }
+    async fn insert(db: &SqlitePool, id: &str, telemetry: Vec<Value>) -> String {
+        let mut v = serde_json::to_value(fixture(id, telemetry)).unwrap();
+        v["unknown_future_field"] = json!({"keep":"unrelated"});
+        let body = serde_json::to_string(&v).unwrap();
+        sqlx::query("INSERT INTO runs(id,body) VALUES(?,?)")
+            .bind(id)
+            .bind(&body)
+            .execute(db)
+            .await
+            .unwrap();
+        body
+    }
+    #[tokio::test]
+    async fn legacy_telemetry_migration_is_ordered_idempotent_and_preserves_answer_bytes() {
+        let db = database().await;
+        let samples = vec![
+            json!({"at":"t2","watts":1.23456789012345}),
+            Value::Null,
+            json!(true),
+            json!(false),
+            json!(42),
+            json!("한국어"),
+            json!([2, 1]),
+            json!({"at":"t1"}),
+        ];
+        let original = insert(&db, "fixture", samples.clone()).await;
+        init(&db).await.unwrap();
+        let row = r#"{ "task":{"id":"a","subject":"x","prompt":"p","answer":1,"scorer":"numeric","max_tokens":32},"status":"pending","attempts":[] }"#;
+        sqlx::query("INSERT INTO run_items VALUES('fixture',0,?)")
+            .bind(row)
+            .execute(&db)
+            .await
+            .unwrap();
+        let (head,): (String,) = sqlx::query_as("SELECT body FROM runs WHERE id='fixture'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let mut expected: Value = serde_json::from_str(&original).unwrap();
+        expected["telemetry"] = json!([]);
+        assert_eq!(serde_json::from_str::<Value>(&head).unwrap(), expected);
+        let mut r: Run = serde_json::from_str(&head).unwrap();
+        load_items(&db, &mut r).await.unwrap();
+        assert_eq!(r.telemetry, samples);
+        assert_eq!(r.public(false)["telemetry"], json!(samples));
+        init(&db).await.unwrap();
+        let (after,): (String,) =
+            sqlx::query_as("SELECT body FROM run_items WHERE run_id='fixture'")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(after, row);
+        let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM run_telemetry")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(n, 8);
+    }
+    #[tokio::test]
+    async fn migration_preserves_raw_numeric_tokens_and_f64_bits() {
+        let db = database().await;
+        let sample_raw = r#"{ "watts":26.912181303116146,"tiny":2.2250738585072014e-308,"large":9007199254740991,"array":[0.10000000000000001,-0.0] }"#;
+        let number_raw = "26.912181303116146";
+        let mut original = serde_json::to_string(&fixture("precision", vec![])).unwrap();
+        original = original.replace(
+            "\"telemetry\":[]",
+            &format!("\"telemetry\":[{sample_raw},{number_raw}]"),
+        );
+        // Keep an unrelated header numeric token intact through SQL json_set.
+        original = original.replace("\"temperature\":0.0", "\"temperature\":26.912181303116146");
+        sqlx::query("INSERT INTO runs(id,body) VALUES('precision',?)")
+            .bind(&original)
+            .execute(&db)
+            .await
+            .unwrap();
+        init(&db).await.unwrap();
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT body FROM run_telemetry WHERE run_id='precision' ORDER BY position",
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(rows, vec![(sample_raw.into(),), (number_raw.into(),)]);
+        let (head,): (String,) = sqlx::query_as("SELECT body FROM runs WHERE id='precision'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert!(head.contains("\"temperature\":26.912181303116146"));
+        let mut loaded: Run = serde_json::from_str(&head).unwrap();
+        load_items(&db, &mut loaded).await.unwrap();
+        let expected = number_raw.parse::<f64>().unwrap();
+        assert_eq!(
+            loaded.telemetry[0]["watts"].as_f64().unwrap().to_bits(),
+            expected.to_bits()
+        );
+        assert_eq!(
+            loaded.telemetry[1].as_f64().unwrap().to_bits(),
+            expected.to_bits()
+        );
+        assert_eq!(loaded.config.temperature.to_bits(), expected.to_bits());
+        let exported = serde_json::to_string(&loaded.telemetry).unwrap();
+        assert!(exported.contains(number_raw));
+        init(&db).await.unwrap();
+        let (again,): (String,) = sqlx::query_as(
+            "SELECT body FROM run_telemetry WHERE run_id='precision' AND position=0",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(again, sample_raw);
+    }
+
+    #[tokio::test]
+    async fn migration_failure_rolls_back_all_runs_and_inline_history() {
+        let db = database().await;
+        init(&db).await.unwrap();
+        let a = insert(&db, "a", vec![json!({"n":1})]).await;
+        let b = insert(&db, "b", vec![json!({"n":2})]).await;
+        sqlx::query("CREATE TRIGGER fail_migration BEFORE INSERT ON run_telemetry WHEN NEW.run_id='b' BEGIN SELECT RAISE(ABORT,'fixture failure'); END").execute(&db).await.unwrap();
+        assert!(init(&db).await.is_err());
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT id,body FROM runs ORDER BY id")
+            .fetch_all(&db)
+            .await
+            .unwrap();
+        assert_eq!(rows, vec![("a".into(), a), ("b".into(), b)]);
+        let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM run_telemetry")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(n, 0);
+        sqlx::query("DROP TRIGGER fail_migration")
+            .execute(&db)
+            .await
+            .unwrap();
+        init(&db).await.unwrap();
+        let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM run_telemetry")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(n, 2);
+    }
+    #[tokio::test]
+    async fn append_only_checkpoints_keep_old_sample_bytes_and_header_size_bounded() {
+        let db = database().await;
+        init(&db).await.unwrap();
+        let mut r = fixture("fixture", vec![json!({"n":0})]);
+        let first_len = serde_json::to_vec(&header(&r)).unwrap().len();
+        let mut tx = db.begin().await.unwrap();
+        append_telemetry(&mut tx, &r.id, &r.telemetry)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let original = "{ \"n\": 0 }";
+        sqlx::query("UPDATE run_telemetry SET body=? WHERE run_id='fixture'")
+            .bind(original)
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TRIGGER prevent_rewrite BEFORE UPDATE ON run_telemetry BEGIN SELECT RAISE(ABORT,'old telemetry rewritten'); END").execute(&db).await.unwrap();
+        r.telemetry.extend(
+            (1..10_000).map(
+                |n| json!({"n":n,"gpu":{"watts":100,"temperature":53},"padding":"x".repeat(64)}),
+            ),
+        );
+        let mut tx = db.begin().await.unwrap();
+        append_telemetry(&mut tx, &r.id, &r.telemetry)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let (stored,): (String,) =
+            sqlx::query_as("SELECT body FROM run_telemetry WHERE run_id='fixture' AND position=0")
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(stored, original);
+        assert_eq!(serde_json::to_vec(&header(&r)).unwrap().len(), first_len);
+        let mut tx = db.begin().await.unwrap();
+        assert_eq!(load_telemetry(&mut tx, &r.id).await.unwrap(), r.telemetry);
+        append_telemetry(&mut tx, &r.id, &r.telemetry)
+            .await
+            .unwrap();
+        assert!(append_telemetry(&mut tx, &r.id, &[]).await.is_err());
+        tx.rollback().await.unwrap();
+        let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM run_telemetry")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(n, 10_000);
+    }
+    #[tokio::test]
+    async fn trash_legacy_history_is_migrated_and_restored_without_loss() {
+        let db = database().await;
+        init(&db).await.unwrap();
+        let samples = vec![json!({"ordinal":0}), json!({"ordinal":1})];
+        insert(&db, "trash", samples.clone()).await;
+        sqlx::query("INSERT INTO run_items VALUES('trash',0,?)").bind(r#"{"task":{"id":"a","subject":"x","prompt":"p","answer":1,"scorer":"numeric","max_tokens":32},"status":"pending","attempts":[]}"#).execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO run_trash VALUES('trash','2026-01-02T00:00:00Z','{}')")
+            .execute(&db)
+            .await
+            .unwrap();
+        init(&db).await.unwrap();
+        assert!(deleted_at(&db, "trash").await.unwrap().is_some());
+        let r = restore(&db, "trash").await.unwrap();
+        assert_eq!(r.telemetry, samples);
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(r.suite_hash, "keep-suite");
+        assert!(deleted_at(&db, "trash").await.unwrap().is_none());
     }
 }

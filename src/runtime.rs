@@ -1,6 +1,7 @@
 use crate::{App, provider, scoring, types::*};
 use serde_json::{Value, json};
 use std::{
+    collections::VecDeque,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -53,6 +54,9 @@ async fn mark_running_dirty(s: &App, id: &str) {
         }
     }
 }
+const GRADING_CONCURRENCY: usize = 4;
+const GRADING_BACKLOG_LIMIT: usize = 64;
+
 fn admission_indices(r: &Run, active_jobs: usize) -> Vec<usize> {
     // Run the existing API-experience items before more quality work so the
     // performance score is available early. Select indices only: task order,
@@ -95,7 +99,7 @@ fn admission_indices(r: &Run, active_jobs: usize) -> Vec<usize> {
             (!warmup, *index)
         })
     {
-        return if active_jobs == 0 {
+        return if active_jobs == 0 && !r.items.iter().any(|i| i.status == "grading") {
             vec![*index]
         } else {
             Vec::new()
@@ -112,16 +116,14 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
         return Ok(());
     }
     let mut jobs = JoinSet::new();
-    let grading = s.runs.lock().await[&id]
+    let mut grading_jobs = JoinSet::new();
+    let mut grading_queue = s.runs.lock().await[&id]
         .items
         .iter()
         .enumerate()
         .filter(|(_, i)| i.status == "grading")
         .map(|(n, _)| n)
-        .collect::<Vec<_>>();
-    for index in grading {
-        jobs.spawn(finish_grading(s.clone(), id.clone(), index));
-    }
+        .collect::<VecDeque<_>>();
 
     let mut tick = tokio::time::interval(Duration::from_millis(200));
     let mut sensor_tick = Instant::now();
@@ -137,7 +139,11 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
             rollback = crate::concurrency_guard::evaluate(&s.runs.lock().await[&id]);
             guard_tick = Instant::now();
         }
-        if rollback.is_some() && jobs.is_empty() {
+        if rollback.is_some()
+            && jobs.is_empty()
+            && grading_jobs.is_empty()
+            && grading_queue.is_empty()
+        {
             let decision = rollback.take().unwrap();
             let previous = {
                 let runs = s.runs.lock().await;
@@ -184,13 +190,21 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
                 if rollback.is_some() {
                     Vec::new()
                 } else {
+                    let available = GRADING_BACKLOG_LIMIT
+                        .saturating_sub(grading_queue.len() + grading_jobs.len() + jobs.len());
                     admission_indices(r, jobs.len())
+                        .into_iter()
+                        .take(available)
+                        .collect()
                 },
             )
         };
         if status == "cancelling" {
             jobs.abort_all();
+            grading_jobs.abort_all();
             while jobs.join_next().await.is_some() {}
+            while grading_jobs.join_next().await.is_some() {}
+            grading_queue.clear();
             scoring::cleanup_run(&id).await;
             if let Some(h) = telemetry_job.take() {
                 h.abort()
@@ -211,6 +225,12 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
             })
             .await?;
             break;
+        }
+        while grading_jobs.len() < GRADING_CONCURRENCY {
+            let Some(index) = grading_queue.pop_front() else {
+                break;
+            };
+            grading_jobs.spawn(finish_grading(s.clone(), id.clone(), index));
         }
         if status == "running" {
             for index in indices {
@@ -240,7 +260,7 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
                 jobs.spawn(run_item(s.clone(), id.clone(), index));
             }
         }
-        if jobs.is_empty() {
+        if jobs.is_empty() && grading_jobs.is_empty() && grading_queue.is_empty() {
             if let Some(h) = telemetry_job.take() {
                 h.abort()
             }
@@ -290,13 +310,20 @@ async fn drive(s: App, id: String) -> anyhow::Result<()> {
             s.update_progress(&id, |r| r.telemetry.push(v)).await?;
         }
         tokio::select! {
-            result=jobs.join_next()=>{if let Some(result)=result{result??;}},
+            result=jobs.join_next(), if !jobs.is_empty()=>{
+                if let Some(result)=result {
+                    if let Some(index)=result?? { grading_queue.push_back(index); }
+                }
+            },
+            result=grading_jobs.join_next(), if !grading_jobs.is_empty()=>{
+                if let Some(result)=result { result??; }
+            },
             _=tick.tick()=>{}
         }
     }
     Ok(())
 }
-async fn run_item(s: App, id: String, index: usize) -> anyhow::Result<()> {
+async fn run_item(s: App, id: String, index: usize) -> anyhow::Result<Option<usize>> {
     let (mut config, task) = {
         let runs = s.runs.lock().await;
         let r = &runs[&id];
@@ -323,7 +350,7 @@ async fn run_item(s: App, id: String, index: usize) -> anyhow::Result<()> {
             *r.items[index].attempts.last_mut().unwrap() = a;
         })
         .await?;
-        return finish_grading(s, id, index).await;
+        return Ok(Some(index));
     }
     s.update_item(&id, index, true, |r| {
         let i = &mut r.items[index];
@@ -331,7 +358,7 @@ async fn run_item(s: App, id: String, index: usize) -> anyhow::Result<()> {
         *i.attempts.last_mut().unwrap() = a;
     })
     .await?;
-    Ok(())
+    Ok(None)
 }
 async fn finish_grading(s: App, id: String, index: usize) -> anyhow::Result<()> {
     let (config, task, output) = {
@@ -725,6 +752,148 @@ mod admission_tests {
         assert_eq!(admission_indices(&r, 0), (0..8).collect::<Vec<_>>());
         r.items[0].status = "running".into();
         assert_eq!(admission_indices(&r, 1), (1..8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn grading_does_not_occupy_generation_slots_but_blocks_experience_start() {
+        let mut r = run_with_performance(8);
+        r.items.retain(|i| i.task.scorer != "experience");
+        r.items[0].status = "grading".into();
+        r.items[1].status = "grading".into();
+        assert_eq!(admission_indices(&r, 0), (2..10).collect::<Vec<_>>());
+        let mut experience = run().items[2].clone();
+        experience.task.id = "experience:later".into();
+        r.items.push(experience);
+        assert!(admission_indices(&r, 0).is_empty());
+    }
+
+    #[tokio::test]
+    async fn blocked_grader_keeps_generation_slots_free_with_bounded_backlog_and_pause_drain() {
+        use axum::{Json, Router, extract::State, routing::post};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::sync::{Semaphore, broadcast};
+        #[derive(Clone)]
+        struct Fixture {
+            generated: Arc<AtomicUsize>,
+            grading: Arc<AtomicUsize>,
+            peak: Arc<AtomicUsize>,
+            gate: Arc<Semaphore>,
+        }
+        async fn answer(State(f): State<Fixture>, Json(body): Json<Value>) -> Json<Value> {
+            let content = if body["model"] == "judge" {
+                let active = f.grading.fetch_add(1, Ordering::SeqCst) + 1;
+                f.peak.fetch_max(active, Ordering::SeqCst);
+                f.gate.clone().acquire_owned().await.unwrap().forget();
+                f.grading.fetch_sub(1, Ordering::SeqCst);
+                r#"{"score":1,"reason":"fixture"}"#
+            } else {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                f.generated.fetch_add(1, Ordering::SeqCst);
+                "1"
+            };
+            Json(
+                json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}),
+            )
+        }
+        let fixture = Fixture {
+            generated: Default::default(),
+            grading: Default::default(),
+            peak: Default::default(),
+            gate: Arc::new(Semaphore::new(0)),
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let router = Router::new()
+            .route("/v1/chat/completions", post(answer))
+            .with_state(fixture.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let db = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE runs(id TEXT PRIMARY KEY,body TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        crate::storage::init(&db).await.unwrap();
+        let (events, _) = broadcast::channel(32);
+        let app = App {
+            data_dir: "/unused".into(),
+            db,
+            events,
+            preflights: Default::default(),
+            runs: Default::default(),
+            packs: Default::default(),
+            keys: Default::default(),
+            judge_keys: Default::default(),
+            active: Default::default(),
+            settings_lock: Default::default(),
+            dirty: Default::default(),
+        };
+        let mut r = run();
+        r.config.concurrency = 2;
+        r.config.base_url = url.clone();
+        r.config.timeout_s = 15;
+        r.config.judge = Some(
+            serde_json::from_value(json!({"base_url":url,"model":"judge","max_tokens":128}))
+                .unwrap(),
+        );
+        r.items = (0..100)
+            .map(|index| {
+                let mut i = r.items[0].clone();
+                i.task.id = format!("fixture:{index}");
+                i.task.scorer = "judge".into();
+                i.task.meta = json!({"rubric":"score one"});
+                i
+            })
+            .collect();
+        app.runs.lock().await.insert(r.id.clone(), r);
+        let running = tokio::spawn(drive(app.clone(), "fixture".into()));
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while fixture.generated.load(Ordering::SeqCst) < GRADING_BACKLOG_LIMIT {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert_eq!(
+            fixture.generated.load(Ordering::SeqCst),
+            GRADING_BACKLOG_LIMIT
+        );
+        assert_eq!(fixture.peak.load(Ordering::SeqCst), GRADING_CONCURRENCY);
+        app.runs.lock().await.get_mut("fixture").unwrap().status = "pausing".into();
+        fixture.gate.add_permits(100);
+        tokio::time::timeout(Duration::from_secs(10), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let runs = app.runs.lock().await;
+        let r = &runs["fixture"];
+        assert_eq!(r.status, "paused");
+        assert_eq!(
+            r.items.iter().filter(|i| i.status == "done").count(),
+            GRADING_BACKLOG_LIMIT
+        );
+        assert_eq!(
+            r.items.iter().filter(|i| i.status == "pending").count(),
+            100 - GRADING_BACKLOG_LIMIT
+        );
+        assert!(
+            r.items
+                .iter()
+                .filter(|i| i.status == "done")
+                .all(|i| i.attempts.len() == 1
+                    && i.attempts[0].output == "1"
+                    && i.attempts[0].score.as_ref().unwrap().value == Some(1.0))
+        );
+        assert_eq!(
+            fixture.generated.load(Ordering::SeqCst),
+            GRADING_BACKLOG_LIMIT
+        );
+        server.abort();
     }
 
     #[test]

@@ -1257,12 +1257,41 @@ function rememberChoice(key: string, value: string) {
   try { localStorage.setItem(`bench-report-${key}`, value); } catch { /* Browsing without local storage remains supported. */ }
 }
 export function Report({
-  run,
+  run: sourceRun,
   onError,
 }: {
   run: Obj;
   onError: (message: string) => void;
 }) {
+  const [history, setHistory] = useState<{id:string; rows:Obj[]; count:number}|null>(null);
+  const historyRef = useRef(history);
+  const [historyError, setHistoryError] = useState("");
+  const [historyRetry, setHistoryRetry] = useState(0);
+  historyRef.current = history;
+  const totalTelemetry = sourceRun.telemetry_count ?? sourceRun.telemetry?.length ?? 0;
+  useEffect(() => {
+    if (!sourceRun.telemetry_truncated) return;
+    const controller = new AbortController();
+    const old = historyRef.current?.id === sourceRun.id ? historyRef.current : null;
+    const after = old?.count ?? 0;
+    setHistoryError("");
+    fetch(`/api/runs/${encodeURIComponent(sourceRun.id)}/telemetry?after=${after}`, {signal:controller.signal})
+      .then(async response => {if(!response.ok) throw Error("장비 이력을 불러오지 못했습니다.");return response.json();})
+      .then(value => {
+        if(controller.signal.aborted) return;
+        if(value.after !== after || !Array.isArray(value.telemetry) || value.telemetry.length + after !== value.telemetry_count) throw Error("장비 이력 수가 일치하지 않습니다.");
+        setHistory({id:sourceRun.id, rows:[...(old?.rows ?? []),...value.telemetry], count:value.telemetry_count});
+      }).catch(error=>{if(!controller.signal.aborted)setHistoryError(String(error).replace(/^Error: /,""));});
+    return ()=>controller.abort();
+  }, [sourceRun.id, sourceRun.status, sourceRun.telemetry_truncated, Math.floor(totalTelemetry / 30), historyRetry]);
+  const run = useMemo(() => {
+    if (!sourceRun.telemetry_truncated) return sourceRun;
+    if (!history || history.id !== sourceRun.id) return {...sourceRun,telemetry:[]};
+    const tail = sourceRun.telemetry || [], delta = totalTelemetry - history.count;
+    const rows = delta >= 0 && delta <= tail.length ? [...history.rows, ...tail.slice(tail.length-delta)] : history.rows;
+    return {...sourceRun,telemetry:rows,telemetry_count:rows.length,telemetry_truncated:false};
+  }, [sourceRun, history]);
+  const historyLoading = sourceRun.telemetry_truncated && (!history || history.id !== sourceRun.id || totalTelemetry - history.count > (sourceRun.telemetry?.length ?? 0));
   const [format, setFormat] = useState<Format>(() => savedChoice("format", formats, "overview")),
     [theme, setTheme] = useState<Theme>(() => savedChoice("theme", themes, "light")),
     [page, setPage] = useState(savedPage),
@@ -1401,6 +1430,10 @@ export function Report({
       }
     }
   }
+  if (historyLoading) return <section className="report-view" aria-busy={!historyError}>
+    <p>{historyError || "보고서 장비 이력을 불러오는 중…"}</p>
+    {historyError && <button onClick={()=>setHistoryRetry(n=>n+1)}>다시 불러오기</button>}
+  </section>;
   return (
     <section className="report-view">
       <div className="report-metric-audit"><MetricCoverage run={run} /></div>

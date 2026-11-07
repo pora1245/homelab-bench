@@ -293,6 +293,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/runs/{id}", get(run_get))
         .route("/api/runs/{id}/delete", post(run_delete))
         .route("/api/runs/{id}/items/{index}", get(item_get))
+        .route("/api/runs/{id}/telemetry", get(run_telemetry_get))
         .route("/api/runs/{id}/{action}", post(control))
         .route("/api/compare/{a}/{b}", get(compare))
         .route("/api/export/{id}", get(export))
@@ -476,13 +477,44 @@ async fn run_get(
     Path(id): Path<String>,
     Query(q): Query<BTreeMap<String, String>>,
 ) -> ApiResult<Json<Value>> {
-    let runs = s.runs.lock().await;
-    let r = runs.get(&id).ok_or_else(|| bad("실행 없음"))?;
-    Ok(Json(if q.get("view").is_some_and(|v| v == "compact") {
-        r.compact()
-    } else {
-        r.public(false)
-    }))
+    let compact = q.get("view").is_some_and(|v| v == "compact");
+    let (snapshot, telemetry_count) = {
+        let runs = s.runs.lock().await;
+        let r = runs.get(&id).ok_or_else(|| bad("실행 없음"))?;
+        (if compact { r.compact_snapshot() } else { r.clone() }, r.telemetry.len())
+    };
+    let value = tokio::task::spawn_blocking(move || {
+        if compact {
+            let mut v = snapshot.compact();
+            v["telemetry_count"] = telemetry_count.into();
+            v["telemetry_truncated"] = (telemetry_count > 300).into();
+            v
+        } else { snapshot.public(false) }
+    }).await.map_err(bad)?;
+    Ok(Json(value))
+}
+async fn run_telemetry_get(State(s): State<App>, Path(id): Path<String>, Query(q): Query<BTreeMap<String,String>>) -> ApiResult<Json<Value>> {
+    let after=q.get("after").map(|v|v.parse::<usize>()).transpose().map_err(bad)?.unwrap_or(0);
+    let (persisted,): (i64,) = sqlx::query_as("SELECT COALESCE(MAX(position)+1,0) FROM run_telemetry WHERE run_id=?")
+        .bind(&id).fetch_one(&s.db).await.map_err(bad)?;
+    let (tail, total) = {
+        let runs = s.runs.lock().await;
+        let r = runs.get(&id).ok_or_else(|| bad("실행 없음"))?;
+        if persisted as usize > r.telemetry.len() { return Err(bad("장비 기록을 다시 확인하세요.")); }
+        if after > r.telemetry.len() { return Err(bad("장비 기록 시작 위치가 범위를 벗어났습니다.")); }
+        (r.telemetry[(persisted as usize).max(after)..].to_vec(), r.telemetry.len())
+    };
+    // Rows are append-only: the persisted prefix and this memory tail form one
+    // complete snapshot even if a checkpoint appends more rows while we read.
+    let rows: Vec<(String,)> = sqlx::query_as("SELECT body FROM run_telemetry WHERE run_id=? AND position>=? AND position<? ORDER BY position")
+        .bind(&id).bind(after as i64).bind(persisted).fetch_all(&s.db).await.map_err(bad)?;
+    let value = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        let mut samples=rows.into_iter().map(|(b,)|serde_json::from_str::<Value>(&b)).collect::<Result<Vec<_>,_>>()?;
+        samples.extend(tail);
+        anyhow::ensure!(samples.len()+after==total,"장비 기록 수가 일치하지 않습니다.");
+        Ok(json!({"telemetry":samples,"telemetry_count":total,"after":after}))
+    }).await.map_err(bad)?.map_err(bad)?;
+    Ok(Json(value))
 }
 async fn item_get(
     State(s): State<App>,
