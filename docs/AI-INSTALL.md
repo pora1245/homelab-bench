@@ -1,6 +1,6 @@
 # AI 설치 안내서
 
-이 문서는 Homelab Bench 설치를 요청받은 AI가 사용자의 선택에 맞춰 설치·연결 설정·상태 확인을 진행하는 순서다. 먼저 사용자의 최신 요청과 작업 환경의 지침을 따른다. 설치를 요청받았을 때 수행하며, 이 문서를 읽었다는 이유만으로 설치나 시험을 시작하지 않는다.
+Homelab Bench 설치를 요청받은 AI를 위한 안내다. 사용자의 최신 요청과 작업 환경의 지침에 따라 설치·연결·상태 확인을 진행한다. 설치나 시험은 사용자가 요청한 범위에서 수행한다.
 
 ## 1. 시작 안내와 질문
 
@@ -20,25 +20,25 @@
 
 - 벤치 앱을 설치할 기기의 OS·CPU 아키텍처·설치 폴더·사용 가능한 포트를 확인한다. 기본 앱 주소는 `http://127.0.0.1:18760`이다.
 - 같은 PC/외부 서버 여부는 사용자의 답변으로 결정한다. API 주소가 localhost라는 이유로 모델의 물리적 위치를 추측하지 않는다.
-- GitHub 소스인지 OS에 맞는 실행 번들인지 확인한다. **Code → Download ZIP은 소스이며 실행 파일을 포함하지 않는다.** 소스에는 Rust/Cargo, Node/npm과 해당 Rust 대상의 C/C++ 빌드 도구가 필요하다.
-- 실행 파일이 있으면 OS·아키텍처가 일치하는지 확인하고 불필요한 빌드를 하지 않는다. Mac용 실행 파일을 Windows·Linux에 복사해 실행하지 않는다.
-- Apple Silicon Mac과 Windows x86_64 실행 ZIP은 기존 기기의 별도 폴더·빈 데이터에서 시작기·화면·기본팩 네 모드를 검증했다. 별도 새 OS·일반 채점 의존성 신규 설치·Linux·Intel Mac 전체 앱은 미검증이다. 실행 ZIP의 작성과 GitHub Release 게시를 구분하고 제공 파일이 실제 있는지 확인한다.
+- GitHub 최신 소스로 설치한다. **Code → Download ZIP은 실행 파일이 없는 소스다.** 빌드에는 Rust/Cargo, Node/npm과 해당 Rust 대상의 C/C++ 빌드 도구가 필요하다. 이미 실행 파일이 있으면 OS·아키텍처를 확인해 사용한다.
+- 앱 시작·화면 확인은 Apple Silicon Mac과 Windows x86_64에서 수행했다. 별도 새 OS·일반 채점 의존성 신규 설치·Linux·Intel Mac 전체 앱은 미검증이다.
 - 설치 의존성은 공식 배포 경로를 사용한다. 인증·관리자 설치·보안 확인처럼 사용자가 직접 처리해야 하는 단계는 구체적인 화면과 이유를 알려준다. 사용자·시스템 전역 설정을 임의로 약화하지 않는다.
 
 ## 3. 앱과 선택 구성 준비
 
 ### 앱
 
-명령은 저장소 루트에서 실행한다. 다운로드한 실행 번들은 루트에 시작 스크립트가 있고, GitHub 소스에는 `packaging/`에 있다.
+명령은 저장소 루트에서 실행한다. 준비·시작 스크립트는 `packaging/`에 있다.
 
 | 환경 | 준비와 실행 |
 |---|---|
 | Apple Silicon Mac 소스 | [README 소스 빌드](../README.md#소스에서-빌드하기)의 `npm ci` → 웹 빌드 → `cargo build --release --locked` → `bin/` 배치 후 Mac 시작 스크립트 |
 | Windows 소스 | `powershell -NoProfile -File .\packaging\Build-Source-Windows.ps1` 후 `packaging\Start-Homelab-Bench-Windows.cmd` |
-| OS가 맞는 실행 번들 | 동봉된 시작 스크립트로 앱 실행. Rust·Node 빌드 생략 |
-| Linux·Intel Mac 전체 앱 | 실행 번들을 제공한다고 가정하지 않는다. 소스 빌드·시작 경로를 별도로 확인하고 미검증 범위를 설명한다. Mac 전용 시작 스크립트는 사용하지 않는다. |
+| Linux·Intel Mac 전체 앱 | 소스 빌드·시작 경로를 별도로 확인하고 미검증 범위를 설명한다. Apple Silicon용 실행 파일을 사용하지 않는다. |
 
 일반 채점 준비는 Mac의 `packaging/Setup-Graders.command`, Windows의 `packaging/Setup-Graders-Windows.ps1`을 사용한다. 시작 스크립트도 첫 실행에 일반 채점 환경을 준비한다. Python 자체가 없으면 현재 스크립트는 공식 설치 화면을 안내하며 설치 완료 후 다시 확인한다. Python을 준비할 수 없다면 실패를 숨기지 말고 내장 채점 과목 사용 가능 여부를 알려준다.
+
+Linux에서는 Python 3.11 이상으로 `python3 tools/prepare_graders.py --data-dir ./data`를 실행해 일반 채점 의존성을 준비한다.
 
 - Python 없이 사용 가능한 기본팩 과목: GSM8K, MMLU-Pro, BBH.
 - Python 채점 환경이 필요한 과목: IFEval, MATH-500 및 코드 과목.
@@ -54,7 +54,7 @@
 | Mac | `zsh packaging/Setup-Code-Grader.command` |
 | Linux | `bash packaging/Setup-Code-Grader-Linux.sh` |
 
-준비 스크립트는 코드 실행 이미지를 만들며 Docker 자체나 가상머신을 자동 설치하지 않는다. Docker가 없다면 공식 설치와 필요한 사용자 조작을 안내한 뒤 준비를 재개한다. 생성된 코드를 호스트에서 직접 실행해 채점하는 방식으로 대체하지 않는다. OS 네이티브 샌드박스는 검증 단계이며 현재 지원 경로처럼 안내하지 않는다.
+준비 스크립트는 코드 실행 이미지를 만든다. Docker·가상머신 설치가 필요하면 공식 설치와 사용자 조작을 안내한 뒤 준비를 재개한다. 코드 채점은 Docker Linux 환경에서 실행하며, 호스트에서 직접 실행하지 않는다. OS 네이티브 샌드박스는 미검증이다.
 
 ### 장비 수집기를 선택한 경우
 
@@ -76,9 +76,9 @@
 python3 tools/configure_install.py --api-url http://127.0.0.1:18760 --model-location local --device-collection yes --code-grading no
 ```
 
-Windows에서는 사용 가능한 Python 3 명령(`py -3` 등)으로 실행한다. `local|remote`, `yes|no` 값을 정확히 지정한다. 도구가 성공했다고 의존성 설치나 연결까지 완료됐다고 판단하지 않는다. 이 도구는 선택만 저장하며 설치·모델 호출을 하지 않는다.
+Windows에서는 사용 가능한 Python 3 명령(`py -3` 등)으로 실행한다. `local|remote`, `yes|no` 값을 정확히 지정한다. 이 도구는 선택만 저장한다. 의존성 준비와 연결은 별도로 확인한다.
 
-Python 도구를 사용할 수 없는 경우 [API 계약](../API.md)에 따라 같은 로컬 실행기의 `POST /api/setup`을 호출한다. 본문은 사용자 답변을 담은 `schema_version:1`, `model_location`, `device_collection`, `code_grading`, `completed:true`다. 이 저장 위치의 파일명은 호환을 위한 `onboarding.json`이며 앱에 처음 사용 준비 화면을 띄우지 않는다.
+Python 도구를 사용할 수 없는 경우 [API 계약](../API.md)에 따라 같은 로컬 실행기의 `POST /api/setup`을 호출한다. 본문은 사용자 답변을 담은 `schema_version:1`, `model_location`, `device_collection`, `code_grading`, `completed:true`다.
 
 ## 5. API·장비 연결 설정
 
@@ -110,15 +110,16 @@ API 키·장비 토큰을 일반 채팅에 보내 달라고 하지 않는다. �
 
 설치가 끝났다고 보고하기 전에 다음을 확인한다.
 
-- 앱 `/api/health` 성공, 홈 접근 가능, 처음 사용 준비 대화창 없음.
+- 앱 `/api/health` 성공, 홈 접근 가능.
 - `GET /api/setup`의 저장값이 사용자 답변과 일치.
 - 선택한 시험 모델의 연결 확인 결과와 정확한 모델 ID.
 - 장비 수집을 선택한 경우 실제 모델 장비에서 최신 자료 수신. 미선택이면 모델 연결의 `device_id`가 빈 문자열이고, API로 생성하는 시험에는 `device_id:null`을 명시함.
 - `GET /api/readiness` 또는 선택 과목으로 제한한 `GET /api/readiness?scorers=...`에서 실제 채점 준비 상태 확인. 코드 미선택이면 코드 채점 미준비를 전체 설치 실패로 처리하지 않음.
-- 준비되지 않은 항목·직접 조작이 필요한 항목·미검증 환경을 구분해 설명. 사용자의 시험 기록이나 점수 기준을 변경하지 않음.
+- 준비되지 않은 항목·직접 조작이 필요한 항목·미검증 환경을 구분해 설명.
+- 기존 시험 기록·연결 설정·점수 기준을 보존한다.
 
 마지막에는 **앱 주소, 시작·종료 방법, 설치한 구성, 모델·장비 연결 결과, 남은 준비 항목**을 짧게 전달한다. 사용자는 앱의 홈에서 새 시험을 시작하거나 결과를 확인하고, 연결 관리에서 설정·구성 요소를 변경할 수 있다.
 
 설치 확인은 시험 전체 실행과 다르다. 사용자가 벤치 실행을 요청했다면 **기본 벤치팩 → 10분·1시간·4시간·8시간** 중 요청한 모드로 진행한다. 전체 과목 기준41·160·536·1,010문항이며, 실제 값은 `GET /api/packs`의 `basic-bench-v2`와 `sources.modes`에서 확인한다. API 본문은 [새 시험 예제](../API.md#새-시험)를 사용한다. 과목을 제외하면 해당 모드 전체보다 짧아지며 시간 기준도 달라진다.
 
-기본팩과 필요한 원본 자료는 저장소와 실행 번들에 포함돼 있다. 새 설치에는 과거 팩 정의·생성 도구가 없으며, 데이터를 다시 받거나 팩을 재생성하지 않는다. 설치만 요청했다면 모델에 문제를 자동 전송하지 않는다.
+기본팩과 필요한 원본 자료는 저장소에 포함돼 있어 추가 다운로드나 팩 재생성이 필요 없다. 모델 시험은 사용자가 요청한 경우에 시작한다.

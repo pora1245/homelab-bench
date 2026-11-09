@@ -1,58 +1,51 @@
-# Homelab Bench 비공개 베타 시작 안내
+# Homelab Bench 시작 안내
 
-이 번들은 개인 PC에서 모델 API를 시험하고 결과를 보는 **테스터용 로컬 베타**입니다. 시험 기록과 결과는 설치한 기기에 저장되며 개발자 서버로 자동 업로드되지 않습니다. 문제는 사용자가 연결한 모델 API로 전송되고, 채점용 외부 API를 선택하면 채점에 필요한 문제·정답·답변도 해당 제공업체로 전송됩니다. 비용·토큰 사용량은 사용한 서비스 기준을 따릅니다. 설치나 앱 실행만으로 모델 시험을 자동 시작하지 않습니다.
+모델 API를 시험하고 결과를 보는 로컬 앱입니다. 시험 기록과 결과는 설치한 기기에 저장되며 개발자 서버로 자동 업로드되지 않습니다. 문제는 사용자가 연결한 모델 API로 전송되고, 채점용 외부 API를 선택하면 문제·정답·답변도 해당 제공업체로 전송됩니다. 비용·토큰 사용량은 사용한 서비스 기준을 따릅니다.
 
-**AI에게 설치를 맡기려면 [AI 설치 안내서](AI-INSTALL.md)를 읽고 진행하라고 요청하세요.** AI가 모델 실행 위치, 장비 수집기, 코드 채점기 선택을 질문하고 필요한 설치·연결·상태 확인을 수행합니다. 앱은 별도 처음 사용 준비 화면 없이 홈으로 열리며 설정은 연결 관리에서 변경합니다.
+**AI에게 설치를 맡기려면 [AI 설치 안내서](AI-INSTALL.md)를 읽고 진행하라고 요청하세요.** AI가 모델 실행 위치, 장비 수집기, 코드 채점기 선택을 질문하고 필요한 설치·연결·상태 확인을 수행합니다. 설치 후 설정은 **연결 관리**에서 변경합니다.
 
-## 받을 파일
+## 1. 설치와 앱 시작
 
-이번 홈랩 벤치 변경은 **GitHub 최신 소스와 소스 ZIP**에 반영했습니다. 아래 실행 ZIP 이름은 배포 형식 안내이며, 새 이름의 Mac·Windows 실행 ZIP을 이번에 발행한 것은 아닙니다. 이전 LLM Bench 실행 ZIP에는 이번 변경이 없으므로 최신 설치는 GitHub 소스를 빌드해 사용합니다.
+GitHub의 **Code → Download ZIP**으로 최신 소스를 받거나 저장소를 복제합니다. 소스에는 실행 파일이 없으므로 Rust/Cargo·Node/npm과 대상 OS에 맞는 C/C++ 빌드 도구가 필요합니다. [README의 소스 빌드](../README.md#소스에서-빌드하기)를 따라 빌드한 뒤 아래 시작 파일을 실행하세요. 명령은 저장소 루트 기준입니다.
 
-- `homelab-bench-0.1.0-beta-macos-arm64.zip`: Apple Silicon Mac 실행 파일과 화면, 허용된 평가팩을 포함합니다. Rust·Node를 설치하지 않고 앱을 열 수 있습니다.
-- `homelab-bench-0.1.0-beta-windows-x86_64.zip`: Windows 실행 파일과 화면, 같은 기본팩을 포함합니다. 루트의 `Start-Homelab-Bench-Windows.cmd`로 실행합니다.
-- `homelab-bench-0.1.0-beta-source.zip`: Rust/React 원본과 잠금 파일, 같은 평가팩을 포함합니다. 빌드에는 Rust/Cargo·Node/npm이 필요합니다.
-- `SHA256SUMS`: 압축파일 무결성 확인용입니다. 터미널에서 다운로드 폴더로 이동한 뒤 `shasum -a 256 -c SHA256SUMS`로 확인합니다.
+| 환경 | 시작 |
+|---|---|
+| Apple Silicon Mac | `zsh packaging/Start-Homelab-Bench.command` |
+| Windows x86_64 | `.\packaging\Start-Homelab-Bench-Windows.cmd` |
 
-이전 버전에서 검증한 Mac 실행 ZIP은 **macOS Apple Silicon용**입니다. 동일 Mac에서 별도 폴더·빈 기록/연결·별도 포트로 압축 해제 후 실행을 확인했으며, 별도 물리 Mac의 신규 OS 설치 검증은 아직 하지 않았습니다. 실제 확인 OS는 macOS 26.5.2이며 바이너리의 최소 링크 타깃은 11.0입니다. 이전 macOS에서의 실제 동작과 앱 서명·Apple 공증은 아직 검증 완료가 아닙니다.
+앱 시작·화면 확인은 Apple Silicon Mac(macOS 26.5.2)과 Windows 11 x86_64에서 수행했습니다. 별도 새 OS·일반 채점 의존성 신규 설치, 이전 macOS, Intel Mac·Linux 전체 앱, macOS 서명·공증은 미검증입니다. Windows 준비는 [Windows 안내](WINDOWS-NATIVE-PREPARATION.md)를 참고하세요.
 
-**이전 버전의 Windows x86_64 실행 ZIP을 작성·검증했습니다.** 기존 Windows11 PC의 별도 폴더와 빈 데이터에서 시작기·화면·기본팩 네 모드·종료를 확인했습니다. 별도 신규 OS와 일반 채점 의존성 신규 설치는 미검증이며, 이전 채점·장비 수집 검증과 범위를 구분합니다. [Windows 안내](WINDOWS-NATIVE-PREPARATION.md)를 참고하세요. Intel Mac·Linux 전체 앱의 신규 설치는 미검증입니다. GitHub의 Code → Download ZIP은 실행 파일이 없는 소스이므로 [README의 소스 빌드](../README.md#소스에서-빌드하기)가 먼저 필요합니다. 실행 ZIP은 별도로 제공된 파일을 사용하며, 저장소에 Release 파일이 있다고 가정하지 않습니다.
+시작 스크립트가 일반 채점 의존성을 준비한 뒤 앱과 브라우저를 엽니다. 브라우저가 열리지 않으면 `http://127.0.0.1:18760`에 접속하세요. **연결 관리**에서 모델 API 주소·모델 ID·키와 시험 장비를 연결하고, 서버에 맞는 Chat Completions 또는 Responses API 방식을 선택합니다.
 
-## 1. 앱 열기 · Apple Silicon Mac 실행 번들
+macOS가 실행을 차단하면 받은 출처를 확인한 뒤 시스템 설정에서 실행 허용 여부를 결정하세요. 보안 설정을 일괄 해제하지 마세요.
 
-1. 실행 ZIP 전체를 쓰기 가능한 폴더에 압축 해제합니다. 예: 문서 폴더의 `Homelab Bench`.
-2. `Start-Homelab-Bench.command`를 실행합니다. 첫 실행에 필요한 일반 채점 의존성을 준비한 뒤 앱과 브라우저를 엽니다. 이미 준비된 버전과 자료가 있으면 다시 다운로드하지 않습니다. 직접 준비만 하려면 `Setup-Graders.command`를 실행합니다.
-3. macOS가 미확인 개발자 앱 실행을 차단하면 받은 출처와 체크섬을 먼저 확인하고 본인이 시스템 설정의 실행 허용 여부를 결정합니다. 보안 설정을 일괄 해제하거나 quarantine을 자동 제거하는 스크립트는 제공하지 않습니다.
-4. 브라우저의 `http://127.0.0.1:18760`에서 **연결 관리**를 열어 모델 API 주소·모델 ID·키와 시험 장비를 연결합니다. OpenAI 호환 Chat Completions 또는 Responses API 방식을 맞춘 뒤 시험과 보고서를 사용합니다. 다른 사용자의 연결·키·장비·시험 이력은 이 번들에 들어 있지 않습니다.
-
-브라우저만 닫으면 실행기는 계속 실행됩니다. 실행 터미널에서 **Control-C**를 누르면 종료합니다. 터미널을 닫기 전에 진행 중 시험을 일시정지/중단하거나 완료를 기다려 주세요. 포트가 이미 사용 중이면 `BENCH_PORT=18762 ./Start-Homelab-Bench.command`처럼 바꿔 실행할 수 있습니다.
+브라우저만 닫으면 시험은 계속됩니다. 시험을 일시정지·중단하거나 완료한 뒤 시작 터미널에서 **Ctrl+C**를 눌러 앱을 종료하세요. 포트가 이미 사용 중이면 Mac은 `BENCH_PORT=18762 zsh packaging/Start-Homelab-Bench.command`, Windows는 `.\packaging\Start-Homelab-Bench-Windows.cmd -Port 18762`로 바꿔 실행합니다.
 
 ## 2. 채점 환경 준비
 
-설치 AI가 모델 실행 위치와 장비 수집기·코드 채점기 사용 여부를 질문합니다. 답변은 설치 구성으로 저장하며, 선택한 구성만 준비하고 실제 상태를 확인합니다. 코드 채점을 선택하지 않으면 종합 시험의 기본 과목에서 제외하고, 나중에 연결 관리에서 준비한 뒤 새 시험에 추가할 수 있습니다.
+코드 채점을 선택하지 않으면 기본 시험 과목에서 제외합니다. 나중에 **연결 관리**에서 준비한 뒤 새 시험에 추가할 수 있습니다.
 
-같은 PC는 앱의 내장 장비 수집을 사용합니다. 외부 모델은 해당 모델 서버에 별도 수집기를 설치합니다. 수집기 전용 패키지에는 모델·평가 자료·Python·Docker가 필요 없습니다. 상세 설치 파일과 인증 연결은 [장비 수집기 안내](DEVICE-COLLECTOR.md)에 있습니다. 모델 API 주소가 localhost여도 장비 위치를 추측하지 않으며 모델 연결에 지정한 장비만 사용합니다.
+모델이 앱과 같은 PC에 있으면 내장 장비 수집을 사용하고, 외부 서버에 있으면 그 서버에 수집기를 설치합니다. 상세 설치와 인증 연결은 [장비 수집기 안내](DEVICE-COLLECTOR.md)를 참고하세요.
 
-처음 실행할 때 일반 채점 환경을 준비하고 이후에는 준비된 환경을 확인합니다. `.venv`, Python 실행 파일, Docker 이미지, NLTK 데이터는 번들에 포함하지 않습니다. 준비가 실패해도 앱은 열리며 내장 채점기를 사용하는 팩부터 시험할 수 있습니다. 준비 단계를 건너뛰고 앱을 열려면 `BENCH_SKIP_SETUP=1 ./Start-Homelab-Bench.command`를 사용합니다.
+채점 준비에 실패해도 내장 채점 과목부터 사용할 수 있습니다. 준비를 건너뛰려면 Mac은 `BENCH_SKIP_SETUP=1 zsh packaging/Start-Homelab-Bench.command`, Windows는 `.\packaging\Start-Homelab-Bench-Windows.cmd -SkipSetup`을 사용합니다.
 
 - **GSM8K·MMLU-Pro·BBH**: 내장 채점기를 사용하므로 Python·Docker 없이 시작할 수 있습니다.
 - **IFEval·MATH-500**: Python 3.11 이상과 지정 의존성이 필요하며 IFEval에는 NLTK 자료도 필요합니다. Python 3.11을 권장합니다.
 - **HumanEval·MBPP**: Python 채점 환경과 실행 중인 Docker Desktop 또는 Colima가 필요합니다. 모델이 생성한 코드를 호스트 Python으로 직접 실행하는 대체 경로는 없습니다.
 
-기존 Python 3.11 이상을 자동으로 찾습니다. Python 자체가 없으면 `Install-Python.command`가 [공식 Python 설치 페이지](https://www.python.org/downloads/release/python-31410/)를 열고 설치 후 재검색합니다. **Python 설치 화면의 조작은 현재 직접 해야 하는 단계**입니다. 설치를 나중에 하려면 안내에서 Enter를 눌러 내장 시험부터 사용할 수 있습니다. `Setup-Graders.command`는 번들 안에 `.venv`를 만들고 필요한 고정 직접 의존성과 NLTK 자료만 준비합니다. Python 명령이 다르면 다음처럼 지정합니다.
+일반 채점 준비는 Mac의 `packaging/Setup-Graders.command`, Windows의 `packaging/Setup-Graders-Windows.cmd`를 사용합니다. 기존 Python 3.11 이상을 찾고 `.venv`에 필요한 의존성을 준비합니다. Python이 없으면 공식 설치 페이지를 안내하며, 설치 화면은 사용자가 진행합니다. Mac에서 Python 명령을 직접 지정하려면 다음처럼 실행하세요.
 
 ```bash
-BENCH_SETUP_PYTHON=python3 ./Setup-Graders.command
+BENCH_SETUP_PYTHON=python3 zsh packaging/Setup-Graders.command
 ```
 
-**Docker는 코드 시험을 선택할 때만 사용하는 별도 선택 의존성**입니다. 일반 수학·지식·추론·지시 이행·성능 시험에는 필요하지 않습니다. 준비 도구는 Docker·가상머신을 자동 설치하지 않습니다. 기존 Docker Desktop 또는 Colima가 실행 중이면 `Setup-Code-Grader.command`로 코드 채점 이미지만 준비할 수 있습니다. 같은 수동 명령은 아래와 같습니다. 작은 Dockerfile만 빌드 문맥으로 보내며 개인 폴더는 전송하지 않습니다.
+**Docker는 코드 시험에만 필요합니다.** Docker Linux 실행 환경을 먼저 준비하고 Mac의 `packaging/Setup-Code-Grader.command` 또는 Windows의 `packaging/Setup-Code-Grader-Windows.cmd`로 코드 채점 이미지를 만듭니다. 준비 도구는 Docker·가상머신을 자동 설치하지 않습니다. 이미지의 수동 준비 명령은 다음과 같습니다.
 
 ```bash
 docker build -t llm-bench-code:py311 - < scorers/Dockerfile
 ```
 
-시작 스크립트는 두 코드 채점기 모두 이 이미지를 사용합니다. 공식 Python base는 Dockerfile의 digest로 고정하며, 실제 실행 때 이미지 ID를 기록합니다. Python 직접 의존성은 고정돼 있지만 전이 의존성까지 완전한 플랫폼별 lock을 제공하는 단계는 아닙니다. 설치 시 인터넷 연결이 필요합니다. 설치 후 앱의 새 시험에서 **상태 다시 확인**을 누르고 **채점 준비 완료**를 확인합니다. 준비 필요/확인 실패는 원인 안내에 따라 해결합니다.
-
-Windows AppContainer·Mac App Sandbox를 사용하는 네이티브 코드 채점 경로는 아직 구현·검증 완료가 아닙니다. 현재 코드 채점 경로를 OS 네이티브 sandbox라고 표시하지 않습니다. 준비된 코드 환경이 없는 경우 호스트에서 생성 코드를 직접 실행하지 않습니다.
+의존성 설치에는 인터넷 연결이 필요합니다. 설치 후 앱의 새 시험에서 **상태 다시 확인 → 채점 준비 완료**를 확인하세요. 준비 필요·확인 실패는 표시된 원인에 따라 해결합니다. 코드 채점은 Docker Linux 환경을 사용하며 Windows AppContainer·Mac App Sandbox는 미검증입니다.
 
 ## 3. 시험과 점수
 
@@ -73,24 +66,22 @@ LiveCodeBench는 자료 재배포 조건 검토가 남아 기본팩에 포함하
 
 TTFT에는 통신·서비스 대기·추론이 포함됩니다. Prefill은 서버가 실제 제공한 경우 표시하며 TTFT에서 대신 계산하지 않습니다.
 
-## 4. 자료 추가와 소스 빌드
+## 4. 자료 추가
 
 데이터팩을 직접 추가하려면 앱의 평가팩 추가에서 `schemas/pack.schema.json` 형식의 JSON을 선택합니다. 사용자 평가팩·문항 ID에는 `custom:`처럼 고유 접두사를 사용합니다. 공식 평가팩의 예약 ID를 재사용해 공식 점수로 보이게 만드는 등록은 차단됩니다. 추가 자료의 사용·재배포 권리를 확인해야 합니다.
 
-기본팩과 필요한 원본 자료가 동봉돼 있어 추가 다운로드나 팩 재생성이 필요하지 않습니다. 예전 팩 정의와 생성 도구는 새 배포에서 제외합니다. 출처와 채점 방식은 [원본 자료 안내](../datasets/README.md)를 참고하세요.
-
-Apple Silicon Mac용 **소스 ZIP**은 Rust/Cargo와 Node/npm 설치 후 ZIP 루트의 `Build-Source.command`를 실행해 빌드합니다. GitHub 소스 체크아웃에는 이 파일이 `packaging/`에 있으므로 그대로 실행하지 말고 [README의 루트 기준 빌드 명령](../README.md#소스에서-빌드하기)을 사용합니다. Windows는 저장소 루트에서 `powershell -NoProfile -File .\packaging\Build-Source-Windows.ps1`로 빌드한 뒤 `.\packaging\Start-Homelab-Bench-Windows.cmd`로 실행합니다. 선택한 Rust 대상에 맞는 C/C++ 빌드 환경도 필요합니다. Cargo.lock/npm lock을 사용하며, 소스 변경 뒤에는 새 산출물·체크섬을 생성해 배포본을 구분합니다.
+기본팩과 필요한 원본 자료는 저장소에 포함돼 있어 추가 다운로드나 팩 재생성이 필요하지 않습니다. 출처와 채점 방식은 [원본 자료 안내](../datasets/README.md)를 참고하세요.
 
 ## 5. 기록과 공유
 
-- Mac 기본 데이터 폴더: 번들 폴더 아래 `data/`
+- Mac 기본 데이터 폴더: 앱 폴더 아래 `data/`
 - Windows 시작 스크립트 기본 데이터 폴더: `%LOCALAPPDATA%\LLM-Bench\data`
 - `BENCH_DATA_DIR` 또는 Windows의 `-DataDirectory`를 지정했다면 그 경로를 사용합니다.
 - 시험 기록·연결·장비: 데이터 폴더의 `app.sqlite3`
 - API 키: 같은 폴더의 `credentials.json` 별도 파일. Unix 권한을 제한하지만 OS 키체인은 아닙니다.
 - NLTK 자료: 같은 폴더의 `nltk_data/`
-- 업데이트: 실행기를 종료하고 실제 사용 중인 데이터 폴더 전체를 백업한 뒤 새 번들에서도 같은 기록 경로를 사용합니다. 실행 중 DB 파일을 단순 복사하지 않습니다.
-- 재공유: 사용한 앱 폴더를 그대로 ZIP으로 보내면 안 됩니다. 키·주소·기록이 포함될 수 있습니다. 제공자의 원래 ZIP만 공유 정책에 따라 전달하세요.
+- 업데이트: 실행기를 종료하고 실제 사용 중인 데이터 폴더 전체를 백업한 뒤 같은 기록 경로를 사용합니다. 실행 중 DB 파일을 단순 복사하지 않습니다.
+- 재공유: 사용한 앱 폴더에는 키·주소·기록이 포함될 수 있으므로 그대로 공유하지 마세요.
 - 원시 JSON 결과에는 프롬프트·출력·메모·연결 주소가 들어갈 수 있습니다. 공유 전 직접 검토하세요.
 
-이 번들은 검토용 비공개 베타입니다. 프로젝트 고유 코드의 공개 OSS 라이선스는 아직 정하지 않았습니다. 이를 MIT 등으로 임의 해석하지 않습니다. 테스터의 사용·복제·재배포 범위는 제공자의 안내를 따르고, 제3자 데이터·코드는 `THIRD_PARTY_NOTICES.md`, `docs/THIRD-PARTY-NOTICES.md`, `DEPENDENCIES.json`, `THIRD-PARTY-LICENSES/`, `LICENSES/`, `docs/licenses/`의 각 조건을 따릅니다. 라이선스 고지가 앱 전체에 새 라이선스를 부여하는 것은 아닙니다.
+앱 코드의 재배포 조건은 [라이선스 상태](../PROJECT-LICENSE-STATUS.txt), 데이터·채점기·의존성의 조건은 [제3자 고지](THIRD-PARTY-NOTICES.md)에서 확인하세요.
