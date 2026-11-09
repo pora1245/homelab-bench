@@ -479,6 +479,7 @@ export function renderReport(
   const profile = cfg.pack_id?.startsWith("timed-") ? benchmarkLabel(cfg.pack_id) + " · 고정 발췌" :
     (
       {
+        "10m": "10분", "1h": "1시간", "4h": "4시간", "8h": "8시간",
         quick: "빠른 시험",
         full: "전체 시험",
         standard: "기존 표본 시험",
@@ -578,7 +579,7 @@ export function renderReport(
     body += block(
       48,
       756,
-      (cfg.pack_id?.startsWith("timed-")
+      (cfg.pack_id === "basic-bench-v2" || cfg.pack_id?.startsWith("timed-")
         ? "시간 기준 고정 발췌이며 공식 원본 전체 점수와 구분합니다. "
         : cfg.profile === "quick"
           ? "고정된 빠른 시험 표본이며 전체 평가 점수와 구분합니다. "

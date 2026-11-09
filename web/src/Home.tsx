@@ -22,8 +22,8 @@ import { benchmarkHelp } from "./benchmarkLabels";
 import "./home.css";
 
 export type HomeTestIntent = {
-  pack_id: "collection-full-v1";
-  profile: "full" | "quick";
+  pack_id: "basic-bench-v2";
+  profile: "1h" | "10m";
 };
 export type HomeReportFormat = "overview" | "intelligence" | "performance";
 export type HomeProps = {
@@ -139,8 +139,8 @@ export function Home({
   const current = assessment.currentScores;
   const completeSetup = () =>
     onNewTest({
-      pack_id: "collection-full-v1",
-      profile: "full",
+      pack_id: "basic-bench-v2",
+      profile: "1h",
     });
   if (loading && !run)
     return (

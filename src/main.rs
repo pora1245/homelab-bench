@@ -576,13 +576,15 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
     {
         return Err(bad("모델·이름·실행 범위를 확인하세요"));
     }
-    if !["quick", "standard", "full"].contains(&c.profile.as_str()) {
+    if !["quick", "standard", "full", "10m", "1h", "4h", "8h"].contains(&c.profile.as_str()) {
         return Err(bad("시험 프로필 오류"));
     }
     let packs = s.packs.lock().await;
     let p = packs
         .get(&c.pack_id)
         .ok_or_else(|| bad("평가팩을 선택하세요"))?;
+    let mode_ids = timed_packs::mode_ids(p, &c.profile).map_err(bad)?;
+    if mode_ids.is_none() && !["quick", "standard", "full"].contains(&c.profile.as_str()) { return Err(bad("선택한 평가팩은 시간 모드를 지원하지 않습니다")); }
     let per = match c.profile.as_str() {
         "quick" => 5,
         "standard" => 25,
@@ -594,9 +596,10 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
             .collect::<std::collections::HashSet<_>>()
     });
     let mut counts = BTreeMap::new();
-    let tasks = p
+    let mut tasks = p
         .tasks
         .iter()
+        .filter(|t| mode_ids.as_ref().map(|ids|ids.contains(&t.id)).unwrap_or(true))
         .filter(|t| c.subjects.is_empty() || c.subjects.contains(&t.subject))
         .filter(|t| {
             if c.profile == "quick" {
@@ -610,6 +613,16 @@ async fn start_run(State(s): State<App>, Json(mut body): Json<Start>) -> ApiResu
         })
         .cloned()
         .collect::<Vec<_>>();
+    if mode_ids.is_some() {
+        // Each calibrated mode has its own measured order, including 10m.
+        // Filtering the largest mode alone can silently reorder smaller modes.
+        let entry = p.sources["modes"].as_array().unwrap().iter()
+            .find(|entry| entry["id"].as_str() == Some(c.profile.as_str())).unwrap();
+        let order = entry["task_ids"].as_array().unwrap().iter().enumerate()
+            .map(|(index, id)| (id.as_str().unwrap(), index))
+            .collect::<std::collections::HashMap<_, _>>();
+        tasks.sort_by_key(|task| order[task.id.as_str()]);
+    }
     if tasks.is_empty() {
         return Err(bad("선택 과목에 문항이 없습니다"));
     }

@@ -54,7 +54,7 @@ const parallelRunHelp = "시험별로 일시정지·재개·중단할 수 있습
 
 const defaults = {
   name: "",
-  pack_id: "timed-10m-v1",
+  pack_id: "basic-bench-v2",
   profile: "full",
   subjects: [] as string[],
   temperature: 0,
@@ -69,13 +69,14 @@ const defaults = {
   telemetry_url: "",
 };
 const packMeta = (pack: Obj) => pack?.sources?.metadata || pack?.sources || {};
-const selectablePack = (pack: Obj) => !packMeta(pack).legacy && !pack.id.startsWith("diagnostic-") && !["korean-core-v1", "api-experience-v1"].includes(pack.id);
+const componentPackIds = new Set(["collection-full-v1", "public-core-v1", "gsm8k-test-v1", "math500-test-v1", "mmlu-pro-test-v1", "bbh-cot-full-v1", "ifeval-full-v1", "humaneval-full-v1", "mbpp-test-v1", "livecodebench-v6-v1"]);
+const selectablePack = (pack: Obj) => !componentPackIds.has(pack.id) && !pack.id.startsWith("timed-") && !packMeta(pack).legacy && !pack.id.startsWith("diagnostic-") && !["korean-core-v1", "api-experience-v1"].includes(pack.id);
 function requiredScorers(packId: string, subjects?: string[], missingPacks: string[] = []) {
-  if (packId === "collection-full-v1" || packId.startsWith("timed-")) return [
+  if (packId === "basic-bench-v2" || packId === "collection-full-v1" || packId.startsWith("timed-")) return [
     ...(!subjects || subjects.includes("고난도 수학") ? ["math"] : []),
     ...(!subjects || subjects.includes("지시 이행") ? ["ifeval"] : []),
     ...(!subjects || subjects.includes("코드") ? ["humaneval", "mbpp", "livecodebench"] : []),
-  ].filter((name) => !(packId.startsWith("timed-") && name === "livecodebench") && !missingPacks.includes(({math:"math500-test-v1",ifeval:"ifeval-full-v1",humaneval:"humaneval-full-v1",mbpp:"mbpp-test-v1",livecodebench:"livecodebench-v6-v1"} as Record<string,string>)[name]));
+  ].filter((name) => !((packId === "basic-bench-v2" || packId.startsWith("timed-")) && name === "livecodebench") && !missingPacks.includes(({math:"math500-test-v1",ifeval:"ifeval-full-v1",humaneval:"humaneval-full-v1",mbpp:"mbpp-test-v1",livecodebench:"livecodebench-v6-v1"} as Record<string,string>)[name]));
   return ["ifeval", "math500", "humaneval", "mbpp", "livecodebench"].filter((name) => packId.startsWith(name)).map((name) => name === "math500" ? "math" : name);
 }
 type ScorerReadiness = "checking" | "ready" | "not-ready" | "failed";
@@ -329,6 +330,7 @@ function App() {
       auto_concurrency: true,
       concurrency: 8,
       pack_id: preferred?.id || defaults.pack_id,
+      profile: preferred?.id === "basic-bench-v2" ? "10m" : "full",
       subjects: initialSubjects(preferred?.id || defaults.pack_id),
     });
     setModal(true);
@@ -384,7 +386,7 @@ function App() {
     });
   }
   const selectablePacks = packs.filter(selectablePack).sort((a,b) => {
-    const order = ["timed-10m-v1", "timed-1h-v1", "timed-4h-v1", "timed-8h-v1"];
+    const order = ["basic-bench-v2", "timed-10m-v1", "timed-1h-v1", "timed-4h-v1", "timed-8h-v1"];
     return (order.includes(a.id) ? order.indexOf(a.id) : 99) - (order.includes(b.id) ? order.indexOf(b.id) : 99);
   }),
     chosenPack = packs.find((p) => p.id === form.pack_id),
@@ -405,7 +407,7 @@ function App() {
         meta.quick_count ??
         Math.min(5, chosenPack?.count || 0))
       : null;
-  const codePack = (form.pack_id.startsWith("timed-") || [
+  const codePack = (meta.basic_pack || form.pack_id.startsWith("timed-") || [
     "collection-full-v1",
     "humaneval-full-v1",
     "mbpp-test-v1",
@@ -418,9 +420,10 @@ function App() {
     if (modal) void checkReadiness(requiredScorerNames);
   }, [modal, readinessKey]);
   const nonCodeSubjects = selectedSubjects.filter((subject) => subject !== "코드");
-  const canSkipCode = (form.pack_id === "collection-full-v1" || form.pack_id.startsWith("timed-")) && codePack && nonCodeSubjects.length > 0
+  const canSkipCode = (meta.basic_pack || form.pack_id === "collection-full-v1" || form.pack_id.startsWith("timed-")) && codePack && nonCodeSubjects.length > 0
     && ["not-ready", "failed"].includes(selectedReadiness.state);
-  const expectedCount = form.profile === "full" ? fullCount : quickCount;
+  const selectedMode = meta.modes?.find((m:Obj) => m.id === form.profile);
+  const expectedCount = meta.basic_pack ? selectedSubjects.reduce((n:number,s:string)=>n+(selectedMode?.subjects?.[s] || 0),0) : form.profile === "full" ? fullCount : quickCount;
   const totalThroughput = useMemo(() => aggregateThroughput(run), [run]);
   const summary = run?.summary || {},
     items: Obj[] = run?.items || [],
@@ -664,9 +667,9 @@ function App() {
                   const scorerNames = requiredScorers(p.id, undefined, packMeta(p).missing_components);
                   const status = scorerReadiness(scorerNames, readiness, readinessChecking, readinessError);
                   return <article key={p.id} className="pack-list-row" role="listitem">
-                    <div className="pack-list-main"><h2>{benchmarkLabel(p)} <Help text={benchmarkHelp(p)} label={`${benchmarkLabel(p)} 도움말`} /></h2><span className="subtle">{m.timed_pack ? `${number(p.count,0)}문항 · 단일 60 tok/s 기준` : `전체 ${number(p.count,0)}문항 · 빠른 ${number(p.quick_count ?? m.quick_count,0)}문항`}</span></div>
+                    <div className="pack-list-main"><h2>{benchmarkLabel(p)} <Help text={benchmarkHelp(p)} label={`${benchmarkLabel(p)} 도움말`} /></h2><span className="subtle">{m.basic_pack ? `10분 · 1시간 · 4시간 · 8시간` : m.timed_pack ? `${number(p.count,0)}문항 · 단일 60 tok/s 기준` : `전체 ${number(p.count,0)}문항 · 빠른 ${number(p.quick_count ?? m.quick_count,0)}문항`}</span></div>
                     <div className="pack-list-status"><span className="pill">설치됨</span><span className={`scorer-status scorer-status-${status.state}`} role="status">{readinessLabels[status.state]}</span><Help label={`${benchmarkLabel(p)} 채점 환경 안내`} text={status.detail}/></div>
-                    <button className="pack-start" onClick={() => { newTest(); setForm((previous) => ({...previous,pack_id:p.id,profile:p.id.startsWith("timed-") ? "full" : previous.profile,subjects:[]})); }}>시험 시작 <ChevronRight size={15}/></button>
+                    <button className="pack-start" onClick={() => { newTest(); setForm((previous) => ({...previous,pack_id:p.id,profile:p.id === "basic-bench-v2" ? "10m" : "full",subjects:[]})); }}>시험 시작 <ChevronRight size={15}/></button>
                     <details className="pack-list-details"><summary>출처·평가 방식</summary><dl className="source-details">{[["데이터셋",m.benchmark || p.name],["분할",m.split],["채점 방식",m.protocol],["라이선스",m.license],["자료 버전",m.source_revision],["배포 조건",m.redistribution]].filter(([,v])=>v!=null).map(([k,v])=><div key={String(k)}><dt>{String(k)}</dt><dd>{String(v)}</dd></div>)}</dl></details>
                   </article>;
                 })}
@@ -791,7 +794,7 @@ function App() {
                   <div>
                     <dt>선택 방식</dt>
                     <dd>
-                      {run.config.pack_id?.startsWith("timed-") ? "시간 기준 고정 발췌" : run.config.profile === "quick"
+                      {run.config.pack_id === "basic-bench-v2" ? ({"10m":"10분","1h":"1시간","4h":"4시간","8h":"8시간"} as Obj)[run.config.profile] : run.config.pack_id?.startsWith("timed-") ? "시간 기준 고정 발췌" : run.config.profile === "quick"
                         ? "빠른 시험"
                         : run.config.profile === "full"
                           ? "원본 전체"
@@ -1141,7 +1144,7 @@ function App() {
                   <div>
                     <dt>선택 방식</dt>
                     <dd>
-                      {run.config.pack_id?.startsWith("timed-") ? "시간 기준 고정 발췌" : run.config.profile === "quick"
+                      {run.config.pack_id === "basic-bench-v2" ? ({"10m":"10분","1h":"1시간","4h":"4시간","8h":"8시간"} as Obj)[run.config.profile] : run.config.pack_id?.startsWith("timed-") ? "시간 기준 고정 발췌" : run.config.profile === "quick"
                         ? "빠른 시험"
                         : run.config.profile === "full"
                           ? "원본 전체"
@@ -1284,7 +1287,7 @@ function App() {
                       setForm({
                         ...form,
                         pack_id: e.target.value,
-                        profile: e.target.value.startsWith("timed-") ? "full" : form.profile,
+                        profile: e.target.value === "basic-bench-v2" ? "10m" : "full",
                         subjects: initialSubjects(e.target.value),
                       })
                     }
@@ -1296,7 +1299,13 @@ function App() {
                     ))}
                   </select>
                 </Field>
-                {!meta.timed_pack && <div className="mode-selector">
+                {meta.basic_pack && <div className="mode-selector basic-modes" aria-label="시험 시간">
+                  {meta.modes.map((mode:Obj)=><button type="button" key={mode.id} className={form.profile===mode.id ? "selected" : ""} onClick={()=>setForm({...form,profile:mode.id})}>
+                    <span>{mode.name}</span><strong>{number(selectedSubjects.reduce((n:number,s:string)=>n+(mode.subjects?.[s]||0),0),0)}문항</strong>
+                  </button>)}
+                </div>}
+                {meta.basic_pack && <p className="subtle">Qwen 실측 기준 <Help label="시험 시간 기준" text="Qwen3.8 Flash IQ3 · RTX 3060의 단일 요청·기본 추론 설정(약 60 tok/s)으로 실측 보정했습니다. 채점 대기는 제외하며 모델·추론·동시 요청 설정에 따라 실제 시간은 달라집니다." /></p>}
+                {!meta.basic_pack && !meta.timed_pack && <div className="mode-selector">
                   {[
                     ["quick", "빠른 시험", "고정 문항으로 간단히 확인"],
                     ["full", "원본 전체", "선택한 과목의 모든 문항"],
@@ -1372,7 +1381,7 @@ function App() {
                         }}
                       />
                       {subject}
-                      <small>{number(chosenPack?.subjects[subject], 0)}</small>
+                      <small>{number(meta.basic_pack ? selectedMode?.subjects?.[subject] : chosenPack?.subjects[subject], 0)}</small>
                     </label>
                   ))}
                 </div>

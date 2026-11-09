@@ -26,11 +26,11 @@ PACKS = []  # Resolved only from the reviewed distribution policy in main().
 EXCLUDED_DATA_FILES = set()
 COMMON_FILES = ["API.md", "datasets/README.md", "schemas/pack.schema.json", "scorers/bridge.py", "scorers/Dockerfile", "scorers/requirements.txt", "scorers/vendor/manifest.json", "tools/prepare_graders.py", "tools/import_full_datasets.py", "tools/import_bbh.py", "tools/audit_bbh_published_outputs.py", "tools/import-requirements.txt", "tests/bbh_contracts.py", "datasets/sources/download-manifest.json", "datasets/sources/bbh-manifest.json", "datasets/sources/bbh-published-results-manifest.json", "packaging/Start-LLM-Bench-Windows.ps1", "packaging/Setup-Graders-Windows.ps1", "packaging/Install-Python-Windows.ps1", "packaging/Setup-Code-Grader-Windows.ps1", "packaging/Start-LLM-Bench-Windows.cmd", "packaging/Setup-Graders-Windows.cmd", "packaging/Setup-Code-Grader-Windows.cmd"]
 SOURCE_FILES = ["Cargo.toml", "Cargo.lock", "web/package.json", "web/package-lock.json", "web/tsconfig.json", "web/index.html", "tools/package_beta.py", "packaging/Build-Source-Windows.ps1", "packaging/Dockerfile.windows-build"]
-SOURCE_FILES += ["tools/build_timed_packs.py", "tools/validate_timed_packs.py", "tools/prepare_screening.py"]
+SOURCE_FILES += ["tools/build_basic_pack.py", "tools/build_timed_packs.py", "tools/validate_timed_packs.py", "tools/prepare_screening.py"]
 DOC_FILES = ["docs/BETA-START.md", "docs/WINDOWS-NATIVE-PREPARATION.md", "docs/BETA-REVIEW.md", "docs/BBH-PACK.md", "docs/bbh-validation.json", "docs/bbh-published-output-audit.json", "docs/THIRD-PARTY-NOTICES.md", "docs/DISTRIBUTION-LICENSE-AUDIT.md", "docs/python-dependencies.json", "docs/distribution-allowlist.json", "docs/rust-toolchain-notices.json", "docs/math500-source-equivalence.json", "docs/dataset-expansion-sources.json"]
 DOC_FILES.append("docs/DEVICE-COLLECTOR.md")
 DOC_FILES += ["docs/AI-INSTALL.md", "docs/STATUS.md"]
-COMMON_FILES += ["datasets/timed-packs/manifest-v1.json", "docs/TIMED-PACK-PLAN.md", "docs/TIMED-PACKS.md", "README.md", "AGENTS.md", "SCORE-POLICY.md", "tools/configure_install.py"]
+COMMON_FILES += ["datasets/basic-pack/manifest-v2.json", "docs/BASIC-PACK.md", "datasets/timed-packs/manifest-v1.json", "docs/TIMED-PACK-PLAN.md", "docs/TIMED-PACKS.md", "README.md", "AGENTS.md", "SCORE-POLICY.md", "tools/configure_install.py"]
 COMMON_FILES += ["packaging/" + name for name in [
     "collector-posix.sh", "Setup-Device-Collector.command", "Start-Device-Collector.command",
     "Setup-Device-Collector-Linux.sh", "Start-Device-Collector-Linux.sh",
@@ -248,7 +248,17 @@ def smoke(zip_path, report_path):
                 expected=expected_packs()
                 timed=json.loads((ROOT/'datasets/timed-packs/manifest-v1.json').read_text())['packs']
                 for p in timed: expected[p['id']]={'count':len(p['task_ids']),'quick':len(p['task_ids'])}
-                ids=sorted(p['id'] for p in packs);assert ids==sorted([*expected,'collection-full-v1'])
+                basic_manifest=json.loads((ROOT/'datasets/basic-pack/manifest-v2.json').read_text())
+                basic=next(p for p in packs if p['id']==basic_manifest['id'])
+                assert basic['version']==basic_manifest['version']
+                assert basic['count']==basic_manifest['modes'][-1]['count']
+                previous=set()
+                for mode, frozen in zip(basic['sources']['modes'],basic_manifest['modes'],strict=True):
+                    assert mode==frozen
+                    selected=set(mode['task_ids'])
+                    assert len(selected)==mode['count'] and previous<=selected
+                    previous=selected
+                ids=sorted(p['id'] for p in packs);assert ids==sorted([*expected,'collection-full-v1',basic_manifest['id']])
                 for pack in packs:
                     if pack['id'] in expected:
                         assert pack['count']==expected[pack['id']]['count']

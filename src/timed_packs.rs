@@ -7,9 +7,16 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 pub fn load(root: &Path) -> Result<Vec<Pack>> {
-    let path = root.join("datasets/timed-packs/manifest-v1.json");
+    let mut packs = load_manifest(root, "datasets/timed-packs/manifest-v1.json", false)?;
+    packs.extend(load_manifest(root, "datasets/basic-pack/manifest-v2.json", true)?);
+    Ok(packs)
+}
+
+fn load_manifest(root: &Path, file: &str, basic: bool) -> Result<Vec<Pack>> {
+    let path = root.join(file);
     if !path.exists() { return Ok(Vec::new()); }
-    let manifest: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    if basic { manifest["packs"] = manifest["modes"].clone(); }
     let mut tasks: BTreeMap<String, Task> = BTreeMap::new();
     for source in manifest["source_files"].as_array().context("시간팩 출처 목록 누락")? {
         let relative = source["file"].as_str().context("시간팩 파일 경로 누락")?;
@@ -41,13 +48,31 @@ pub fn load(root: &Path) -> Result<Vec<Pack>> {
         }
         if selected.is_empty() || !previous.is_subset(&seen) { bail!("시간팩 중첩 관계 오류"); }
         previous = seen;
-        let mut sources=entry["sources"].clone();
+        let mut sources=if basic { manifest["sources"].clone() } else { entry["sources"].clone() };
         sources["quick_ids"]=entry["task_ids"].clone();
         result.push(Pack {id:entry["id"].as_str().context("시간팩 ID 누락")?.into(),
             name:entry["name"].as_str().context("시간팩 이름 누락")?.into(),
-            version:entry["version"].as_str().context("시간팩 버전 누락")?.into(),sources,tasks:selected});
+            version:if basic { manifest["version"].as_str().context("기본팩 버전 누락")?.into() } else { entry["version"].as_str().context("시간팩 버전 누락")?.into() },sources,tasks:selected});
+    }
+    if basic {
+        let mut pack=result.pop().context("기본팩 모드 누락")?;
+        pack.id=manifest["id"].as_str().context("기본팩 ID 누락")?.into();
+        pack.name=manifest["name"].as_str().context("기본팩 이름 누락")?.into();
+        pack.sources["modes"]=manifest["modes"].clone();
+        pack.sources["components"]=manifest["source_files"].clone();
+        return Ok(vec![pack]);
     }
     Ok(result)
+}
+
+pub fn mode_ids(pack: &Pack, mode: &str) -> Result<Option<HashSet<String>>> {
+    if pack.sources["basic_pack"] != true { return Ok(None); }
+    let entry=pack.sources["modes"].as_array().context("기본팩 모드 누락")?
+        .iter().find(|m|m["id"].as_str()==Some(mode)).context("시험 시간은 10분·1시간·4시간·8시간 중 선택하세요")?;
+    let ids=entry["task_ids"].as_array().context("기본팩 문항 누락")?.iter()
+        .map(|id|id.as_str().map(str::to_owned).context("기본팩 문항 ID 오류")).collect::<Result<HashSet<_>>>()?;
+    if ids.len()!=entry["count"].as_u64().unwrap_or(0) as usize || !ids.iter().all(|id|pack.tasks.iter().any(|t|&t.id==id)) { bail!("기본팩 모드 문항 무결성 오류"); }
+    Ok(Some(ids))
 }
 
 #[cfg(test)]
@@ -55,7 +80,7 @@ mod tests {
     use super::*;
     #[test]
     fn frozen_packs_load_reviewed_sources_and_are_nested() {
-        let packs=load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let packs=load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap().into_iter().filter(|p|p.id.starts_with("timed-")).collect::<Vec<_>>();
         assert_eq!(packs.iter().map(|p|p.tasks.len()).collect::<Vec<_>>(),vec![54,259,995,1959]);
         let mut previous=HashSet::new();
         for p in packs {
@@ -65,6 +90,23 @@ mod tests {
             assert!(p.sources["planned_seconds"].as_f64().unwrap()<=p.sources["reference_seconds"].as_f64().unwrap());
             assert!(p.tasks.iter().all(|t|t.scorer!="experience" && !t.prompt.is_empty()));
         }
+    }
+    #[test]
+    fn basic_pack_is_one_pack_with_nested_modes_and_rejects_unknown_modes() {
+        let packs=load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let basics=packs.iter().filter(|p|p.sources["basic_pack"]==true).collect::<Vec<_>>();
+        assert_eq!(basics.len(),1);
+        let p=basics[0]; let mut previous=HashSet::new();
+        for (mode,n) in [("10m",41),("1h",160),("4h",536),("8h",1010)] {
+            let ids=mode_ids(p,mode).unwrap().unwrap();
+            assert_eq!(ids.len(),n); assert!(previous.is_subset(&ids));
+            assert_eq!(p.tasks.iter().filter(|t|ids.contains(&t.id)).map(|t|t.scorer.as_str()).collect::<HashSet<_>>().len(),7);
+            previous=ids;
+        }
+        assert!(mode_ids(p,"full").is_err());
+        assert!(mode_ids(p,"typo").is_err());
+        let mut broken=p.clone(); broken.sources["modes"][0]["count"]=serde_json::json!(0);
+        assert!(mode_ids(&broken,"10m").is_err());
     }
     #[test]
     fn changed_source_is_rejected_before_loading_questions() {
