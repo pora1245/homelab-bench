@@ -55,7 +55,7 @@ const parallelRunHelp = "시험별로 일시정지·재개·중단할 수 있습
 const defaults = {
   name: "",
   pack_id: "basic-bench-v2",
-  profile: "full",
+  profile: "10m",
   subjects: [] as string[],
   temperature: 0,
   max_tokens: 8192,

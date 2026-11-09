@@ -305,7 +305,7 @@ def main():
     legacy=ROOT/"datasets/public-core.json"
     if legacy.exists():
         pack=json.loads(legacy.read_text());pack["sources"]["legacy"]=True
-        pack["sources"]["legacy_reason"]="이전 실행 재현용 100문항 표본. 새 실행은 전체 평가팩 사용."
+        pack["sources"]["legacy_reason"]="이전 실행 재현용 100문항 표본. 새 실행은 동봉된 기본 벤치팩(basic-bench-v2)의 시간 모드 사용."
         legacy.write_text(json.dumps(pack,ensure_ascii=False,indent=2)+"\n")
 
 

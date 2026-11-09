@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""One nested basic pack, calibrated from saved Qwen c1 request time (not grading).
-Private responses stay in --output; public manifest contains IDs and aggregate costs.
+"""Historical candidate selector from 2026-11-08, not the released basic pack.
+
+For normal installation use datasets/basic-pack/manifest-v2.json as shipped.
+This developer tool requires private calibration inputs and writes a new candidate
+folder. Its predicted costs do not reproduce the subsequently measured release.
+Private response-derived costs remain in --output; never publish cost-private.json.
 """
 import argparse, collections, hashlib, json, statistics
 from pathlib import Path
@@ -98,7 +102,7 @@ def calibration(deep, qwen_sets, audit, datasets):
     return manifest,{'observations':len(observations),'excluded':dict(excluded),'scorer_cost_ratios':{k:statistics.median(v) for k,v in ratios.items()},'selected':list(picked.values())}
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--data',type=Path,required=True);p.add_argument('--datasets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--data',type=Path,required=True);p.add_argument('--datasets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     sets=[read(a.data/'qwen-items-current.json.gz')]
     for f in ['qwen-screening-final.json','product-quick-final.json']:sets.append(read(a.data/f)['items'])
     public,private=calibration(read(a.data/'deepseek-items.json.gz'),sets,read(a.data/'bbh-v5-audit.json'),a.datasets)

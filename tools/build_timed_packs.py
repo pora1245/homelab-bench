@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Freeze nested timed subsets from saved answers. No API calls or record writes.
+"""Historical v1 timed-pack selector; normal installation uses the shipped basic-bench-v2.
+Freeze v1 subsets from saved answers. No API calls or record writes.
 The public manifest contains task IDs, source hashes and aggregate costs only.
 """
 import argparse, collections, hashlib, json, math
@@ -125,7 +126,7 @@ def build(deep,qwen,audit,datasets,seed):
     return public,private
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--deepseek',type=Path,required=True);p.add_argument('--qwen',type=Path,required=True);p.add_argument('--bbh-audit',type=Path,required=True);p.add_argument('--datasets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--seed',default='timed-60-v1');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--deepseek',type=Path,required=True);p.add_argument('--qwen',type=Path,required=True);p.add_argument('--bbh-audit',type=Path,required=True);p.add_argument('--datasets',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--seed',default='timed-60-v1');a=p.parse_args()
     out,private=build(read(a.deepseek),read(a.qwen),read(a.bbh_audit),a.datasets,a.seed)
     a.output.mkdir(parents=True,exist_ok=False)
     (a.output/'manifest-v1.json').write_text(json.dumps(out,ensure_ascii=False,indent=2)+'\n')
