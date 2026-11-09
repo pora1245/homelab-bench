@@ -178,6 +178,16 @@ Docker는 별도로 설치하고 실행해야 합니다. 코드 채점은 파일
 
 문항 구성과 실측은 [기본팩 안내](docs/BASIC-PACK.md), 원본 문항 수·출처·채점 방식은 [데이터 문서](datasets/README.md)에서 확인할 수 있습니다.
 
+### 전체 원본 벤치팩 다운로드 (선택)
+
+시간 보정을 위한 문항 선별 없이 **7종·21,567문항 전체**를 실행하려면 [전체 원본 벤치팩 ZIP 다운로드](https://github.com/pora1245/homelab-bench/raw/refs/heads/codex/optional-packs/homelab-bench-full-pack-20261109.zip)를 받으세요. 기본 설치에는 기존 압축팩이 유지됩니다.
+
+GSM8K 1,319 · MATH-500 500 · MMLU-Pro 12,032 · BIG-Bench Hard 6,511 · IFEval 541 · HumanEval 164 · MBPP 500문항으로 구성됩니다.
+
+앱을 종료한 뒤 ZIP의 `datasets/full-bench-v1.json`을 앱의 `datasets/` 폴더에 복사하고 다시 실행하면 **전체 원본 벤치팩**을 선택할 수 있습니다. 자세한 순서는 ZIP의 `INSTALL.md`에 있습니다. 사용자팩 가져오기 버튼 대신 파일 복사로 설치합니다.
+
+전체팩에는 10분·1시간·4시간·8시간 보정이 적용되지 않습니다. 기존 채점 규칙과 자료 결함 처리(BBH 5문항 채점 제외)는 유지합니다.
+
 ## 채점 방식과 측정 기준
 
 벤치별 공식 프롬프트·정답·채점기를 기준으로 평가합니다. 적용 방식과 차이는 [데이터 문서](datasets/README.md)에 정리했습니다.
