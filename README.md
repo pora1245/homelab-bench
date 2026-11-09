@@ -22,7 +22,7 @@ Qwen·RTX3060·단일 요청 약60 tok/s 기준으로 모두 목표±20%에 들�
 
 **이 프로그램은 로컬에서 실행됩니다.** 시험 기록과 결과는 설치한 기기에 저장되며 개발자 서버로 자동 업로드되지 않습니다. 벤치 문제는 사용자가 연결한 모델 API로 전송됩니다. 외부 API를 선택하면 해당 제공업체로 전달되며, 채점용 외부 API를 선택한 경우에는 채점에 필요한 문제·정답·모델 답변도 전송됩니다. 설치 의존성을 준비할 때는 패키지 다운로드를 위해 인터넷을 사용합니다.
 
-기존 설치의 기록 경로와 내부 실행 파일명 `llm-bench`는 호환을 위해 유지합니다. 제품 이름은 홈랩 벤치이며, 저장소 주소는 기존 `pora1245/llm-bench`를 사용합니다.
+기존 설치의 기록 경로와 내부 실행 파일명 `llm-bench`는 호환을 위해 유지합니다. 제품 이름은 홈랩 벤치이며, 최신 저장소는 [pora1245/homelab-bench](https://github.com/pora1245/homelab-bench)입니다.
 
 이 저장소는 비공개 베타입니다. 기본 접속 주소는 <http://127.0.0.1:18760>입니다.
 
@@ -284,7 +284,6 @@ Copy-Item target\release\llm-bench.exe bin\llm-bench.exe -Force
 cargo test --locked
 cargo build --locked
 python3 tests/integration.py
-python3 tests/experience_contract.py
 .venv/bin/python tests/code_scoring_contract.py
 .venv/bin/python tests/dataset_contracts.py
 .venv/bin/python tests/installer_contracts.py
