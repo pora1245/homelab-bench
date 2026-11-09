@@ -492,6 +492,7 @@ function App() {
       <aside className="sidebar">
         <a
           className="brand"
+          aria-label="홈랩 벤치 · Homelab Bench 홈"
           href="#"
           onClick={(e) => {
             e.preventDefault();
@@ -500,7 +501,7 @@ function App() {
         >
           <FlaskConical size={28} />
           <span>
-            bench<small>LOCAL EVALUATION</small>
+            홈랩 벤치<small>Homelab Bench</small>
           </span>
         </a>
         <button className="primary new-test" onClick={newTest}>
@@ -1186,7 +1187,7 @@ function App() {
             </>
           )}
           <footer>
-            bench · 로컬 모델 평가{" "}
+            홈랩 벤치 · 로컬 모델 평가{" "}
             <span>문제·응답·채점 근거를 함께 보관합니다</span>
           </footer>
         </div>

@@ -23,7 +23,7 @@ if [[ ! -x bin/llm-bench || ! -f web/dist/index.html ]]; then
   exit 1
 fi
 if curl -fsS --max-time 2 "http://127.0.0.1:$BENCH_PORT/api/health" >/dev/null 2>&1; then
-  print "이미 실행 중인 LLM Bench를 엽니다. 이 터미널에서는 새 실행기를 시작하지 않았습니다."
+  print "이미 실행 중인 Homelab Bench를 엽니다. 이 터미널에서는 새 실행기를 시작하지 않았습니다."
   open "http://127.0.0.1:$BENCH_PORT"
   exit 0
 fi
@@ -32,7 +32,7 @@ if [[ "${BENCH_SKIP_SETUP:-0}" != 1 ]]; then
     print "일부 채점 환경이 준비되지 않아도 앱은 시작합니다. 준비된 평가팩부터 이용하세요."
   fi
 fi
-print "LLM Bench: http://127.0.0.1:$BENCH_PORT"
+print "Homelab Bench: http://127.0.0.1:$BENCH_PORT"
 print "기록 위치: $BENCH_DATA_DIR"
 print "이 터미널에서 Control-C를 누르면 실행기를 종료합니다. 브라우저만 닫으면 실행기는 유지됩니다."
 (for attempt in {1..30}; do

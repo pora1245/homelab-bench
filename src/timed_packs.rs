@@ -7,16 +7,14 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 pub fn load(root: &Path) -> Result<Vec<Pack>> {
-    let mut packs = load_manifest(root, "datasets/timed-packs/manifest-v1.json", false)?;
-    packs.extend(load_manifest(root, "datasets/basic-pack/manifest-v2.json", true)?);
-    Ok(packs)
+    load_manifest(root, "datasets/basic-pack/manifest-v2.json")
 }
 
-fn load_manifest(root: &Path, file: &str, basic: bool) -> Result<Vec<Pack>> {
+fn load_manifest(root: &Path, file: &str) -> Result<Vec<Pack>> {
     let path = root.join(file);
     if !path.exists() { return Ok(Vec::new()); }
     let mut manifest: Value = serde_json::from_slice(&std::fs::read(path)?)?;
-    if basic { manifest["packs"] = manifest["modes"].clone(); }
+    manifest["packs"] = manifest["modes"].clone();
     let mut tasks: BTreeMap<String, Task> = BTreeMap::new();
     for source in manifest["source_files"].as_array().context("시간팩 출처 목록 누락")? {
         let relative = source["file"].as_str().context("시간팩 파일 경로 누락")?;
@@ -48,21 +46,20 @@ fn load_manifest(root: &Path, file: &str, basic: bool) -> Result<Vec<Pack>> {
         }
         if selected.is_empty() || !previous.is_subset(&seen) { bail!("시간팩 중첩 관계 오류"); }
         previous = seen;
-        let mut sources=if basic { manifest["sources"].clone() } else { entry["sources"].clone() };
+        let mut sources=manifest["sources"].clone();
         sources["quick_ids"]=entry["task_ids"].clone();
         result.push(Pack {id:entry["id"].as_str().context("시간팩 ID 누락")?.into(),
             name:entry["name"].as_str().context("시간팩 이름 누락")?.into(),
-            version:if basic { manifest["version"].as_str().context("기본팩 버전 누락")?.into() } else { entry["version"].as_str().context("시간팩 버전 누락")?.into() },sources,tasks:selected});
+            version:manifest["version"].as_str().context("기본팩 버전 누락")?.into(),sources,tasks:selected});
     }
-    if basic {
+    {
         let mut pack=result.pop().context("기본팩 모드 누락")?;
         pack.id=manifest["id"].as_str().context("기본팩 ID 누락")?.into();
         pack.name=manifest["name"].as_str().context("기본팩 이름 누락")?.into();
         pack.sources["modes"]=manifest["modes"].clone();
         pack.sources["components"]=manifest["source_files"].clone();
-        return Ok(vec![pack]);
+        Ok(vec![pack])
     }
-    Ok(result)
 }
 
 pub fn mode_ids(pack: &Pack, mode: &str) -> Result<Option<HashSet<String>>> {
@@ -79,21 +76,17 @@ pub fn mode_ids(pack: &Pack, mode: &str) -> Result<Option<HashSet<String>>> {
 mod tests {
     use super::*;
     #[test]
-    fn frozen_packs_load_reviewed_sources_and_are_nested() {
-        let packs=load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap().into_iter().filter(|p|p.id.starts_with("timed-")).collect::<Vec<_>>();
-        assert_eq!(packs.iter().map(|p|p.tasks.len()).collect::<Vec<_>>(),vec![54,259,995,1959]);
-        let mut previous=HashSet::new();
-        for p in packs {
-            let ids=p.tasks.iter().map(|t|t.id.clone()).collect::<HashSet<_>>();
-            assert_eq!(ids.len(),p.tasks.len());assert!(previous.is_subset(&ids));previous=ids;
-            assert_eq!(p.tasks.iter().map(|t|t.scorer.as_str()).collect::<HashSet<_>>().len(),7);
-            assert!(p.sources["planned_seconds"].as_f64().unwrap()<=p.sources["reference_seconds"].as_f64().unwrap());
-            assert!(p.tasks.iter().all(|t|t.scorer!="experience" && !t.prompt.is_empty()));
-        }
+    fn old_pack_manifests_are_ignored_even_when_invalid() {
+        let root=std::env::temp_dir().join(format!("bench-latest-{}",uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("datasets/timed-packs")).unwrap();
+        std::fs::write(root.join("datasets/timed-packs/manifest-v1.json"),b"not json").unwrap();
+        assert!(load(&root).unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn basic_pack_is_one_pack_with_nested_modes_and_rejects_unknown_modes() {
         let packs=load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        assert_eq!(packs.len(),1);
         let basics=packs.iter().filter(|p|p.sources["basic_pack"]==true).collect::<Vec<_>>();
         assert_eq!(basics.len(),1);
         let p=basics[0]; let mut previous=HashSet::new();
@@ -111,10 +104,10 @@ mod tests {
     #[test]
     fn changed_source_is_rejected_before_loading_questions() {
         let root=std::env::temp_dir().join(format!("bench-timed-{}",uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(root.join("datasets/timed-packs")).unwrap();
+        std::fs::create_dir_all(root.join("datasets/basic-pack")).unwrap();
         std::fs::write(root.join("datasets/changed.json"),b"{}").unwrap();
-        std::fs::write(root.join("datasets/timed-packs/manifest-v1.json"),
-            serde_json::to_vec(&serde_json::json!({"source_files":[{"file":"datasets/changed.json","sha256":"wrong"}],"packs":[]})).unwrap()).unwrap();
+        std::fs::write(root.join("datasets/basic-pack/manifest-v2.json"),
+            serde_json::to_vec(&serde_json::json!({"source_files":[{"file":"datasets/changed.json","sha256":"wrong"}],"modes":[]})).unwrap()).unwrap();
         assert!(load(&root).err().unwrap().to_string().contains("해시 불일치"));
         std::fs::remove_dir_all(root).unwrap();
     }

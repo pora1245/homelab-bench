@@ -22,4 +22,4 @@ try {
 if ($LASTEXITCODE -ne 0) { throw 'Rust build failed; check the configured MSVC or MinGW linker.' }
 $null = New-Item -ItemType Directory -Force -Path bin
 Copy-Item 'target\release\llm-bench.exe' 'bin\llm-bench.exe' -Force
-Write-Host 'Build complete. Run packaging\Start-LLM-Bench-Windows.ps1.'
+Write-Host 'Build complete. Run packaging\Start-Homelab-Bench-Windows.ps1.'

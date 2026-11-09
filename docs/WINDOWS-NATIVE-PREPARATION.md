@@ -22,10 +22,10 @@
 
 ## 설치 및 실행
 
-실행 ZIP은 루트의 `Start-LLM-Bench-Windows.cmd`, 빌드한 소스 폴더는 `packaging/Start-LLM-Bench-Windows.cmd`를 더블클릭한다. 두 경로 모두 같은 준비·시작 과정을 사용한다. 준비만 다시 하려면 `packaging/Setup-Graders-Windows.cmd`를 연다. PowerShell을 직접 사용하는 경우 앱 폴더에서 아래 명령을 실행한다. Python 3.11 이상이 있어야 하며 3.12를 포함한 실제 설치 버전으로 의존성과 채점 준비 상태를 검증한다.
+실행 ZIP은 루트의 `Start-Homelab-Bench-Windows.cmd`, 빌드한 소스 폴더는 `packaging/Start-Homelab-Bench-Windows.cmd`를 더블클릭한다. 두 경로 모두 같은 준비·시작 과정을 사용한다. 준비만 다시 하려면 `packaging/Setup-Graders-Windows.cmd`를 연다. PowerShell을 직접 사용하는 경우 앱 폴더에서 아래 명령을 실행한다. Python 3.11 이상이 있어야 하며 3.12를 포함한 실제 설치 버전으로 의존성과 채점 준비 상태를 검증한다.
 
 ```powershell
-.\packaging\Start-LLM-Bench-Windows.ps1
+.\packaging\Start-Homelab-Bench-Windows.ps1
 ```
 
 첫 시작은 기존 Python을 찾아 `.venv\Scripts\python.exe`와 일반 채점 의존성·NLTK 자료를 준비한다. 버전과 자료가 맞으면 다시 설치하지 않는다. Python 자체가 없다면 `Install-Python-Windows.ps1`이 [공식 설치 페이지](https://www.python.org/downloads/release/python-31410/)를 연다. **Python 설치 화면은 사용자가 직접 완료해야 하는 현재 제약**이다. 설치를 나중에 하려면 안내에서 Enter를 누르면 된다. 준비 실패 시에도 앱은 열리며 내장 시험을 사용할 수 있다. `-SkipSetup`은 준비 단계를 건너뛰고, `-NoBrowser`는 자동 브라우저 열기를 생략한다.
@@ -69,7 +69,7 @@ Rust/Cargo와 Node/npm, 선택 Rust 대상에 맞는 C compiler/linker가 이미
 
 ```powershell
 powershell -NoProfile -File .\packaging\Build-Source-Windows.ps1
-.\packaging\Start-LLM-Bench-Windows.cmd
+.\packaging\Start-Homelab-Bench-Windows.cmd
 ```
 
 이 스크립트는 기존 Rust 기본 대상을 빌드한다. 교차 빌드는 배포 담당자가 Linux Rust Docker 컨테이너에서 수행한다. `Dockerfile.windows-build`는 `x86_64-pc-windows-gnu`와 MinGW, `crt-static`을 사용하고 `/work`·Cargo 경로를 치환한다. DLL 의존성을 확인한 후 `target/x86_64-pc-windows-gnu/release/llm-bench.exe`만 앱의 `bin/`에 배치한다. 개인 키·DB를 Docker 빌드 문맥에 넣지 않는다. PC용 파일 허용 목록과 최종 압축 해제 검증은 별도 산출물로 기록한다.

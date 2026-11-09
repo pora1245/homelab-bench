@@ -1,9 +1,0 @@
-{
-  "status": "running",
-  "completed": 14,
-  "errors": 0,
-  "prior_completed_exact": 11,
-  "suite_hash_unchanged": true,
-  "task_order_exact": true,
-  "ui_pause_reload_resume": true
-}

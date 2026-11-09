@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Save the user's AI-guided installation choices in a running local LLM Bench.
+"""Save the user's AI-guided installation choices in a running local Homelab Bench.
 
 Uses only Python's standard library. Does not install components, send benchmark
 questions, store API keys, or mark a component as ready without checking it.

@@ -1,4 +1,4 @@
-# LLM Bench 비공개 베타 시작 안내
+# Homelab Bench 비공개 베타 시작 안내
 
 이 번들은 개인 PC에서 모델 API를 시험하고 결과를 보는 **테스터용 로컬 베타**입니다. 시험 기록과 결과는 설치한 기기에 저장되며 개발자 서버로 자동 업로드되지 않습니다. 문제는 사용자가 연결한 모델 API로 전송되고, 채점용 외부 API를 선택하면 채점에 필요한 문제·정답·답변도 해당 제공업체로 전송됩니다. 비용·토큰 사용량은 사용한 서비스 기준을 따릅니다. 설치나 앱 실행만으로 모델 시험을 자동 시작하지 않습니다.
 
@@ -6,23 +6,25 @@
 
 ## 받을 파일
 
-- `llm-bench-0.1.0-beta-macos-arm64.zip`: Apple Silicon Mac 실행 파일과 화면, 허용된 평가팩을 포함합니다. Rust·Node를 설치하지 않고 앱을 열 수 있습니다.
-- `llm-bench-0.1.0-beta-windows-x86_64.zip`: Windows 실행 파일과 화면, 같은 기본팩을 포함합니다. 루트의 `Start-LLM-Bench-Windows.cmd`로 실행합니다.
-- `llm-bench-0.1.0-beta-source.zip`: Rust/React 원본과 잠금 파일, 같은 평가팩을 포함합니다. 빌드에는 Rust/Cargo·Node/npm이 필요합니다.
+이번 홈랩 벤치 변경은 **GitHub 최신 소스와 소스 ZIP**에 반영했습니다. 아래 실행 ZIP 이름은 배포 형식 안내이며, 새 이름의 Mac·Windows 실행 ZIP을 이번에 발행한 것은 아닙니다. 이전 LLM Bench 실행 ZIP에는 이번 변경이 없으므로 최신 설치는 GitHub 소스를 빌드해 사용합니다.
+
+- `homelab-bench-0.1.0-beta-macos-arm64.zip`: Apple Silicon Mac 실행 파일과 화면, 허용된 평가팩을 포함합니다. Rust·Node를 설치하지 않고 앱을 열 수 있습니다.
+- `homelab-bench-0.1.0-beta-windows-x86_64.zip`: Windows 실행 파일과 화면, 같은 기본팩을 포함합니다. 루트의 `Start-Homelab-Bench-Windows.cmd`로 실행합니다.
+- `homelab-bench-0.1.0-beta-source.zip`: Rust/React 원본과 잠금 파일, 같은 평가팩을 포함합니다. 빌드에는 Rust/Cargo·Node/npm이 필요합니다.
 - `SHA256SUMS`: 압축파일 무결성 확인용입니다. 터미널에서 다운로드 폴더로 이동한 뒤 `shasum -a 256 -c SHA256SUMS`로 확인합니다.
 
-Mac 실행 ZIP은 **macOS Apple Silicon용**입니다. 동일 Mac에서 별도 폴더·빈 기록/연결·별도 포트로 압축 해제 후 실행을 확인했으며, 별도 물리 Mac의 신규 OS 설치 검증은 아직 하지 않았습니다. 실제 확인 OS는 macOS 26.5.2이며 바이너리의 최소 링크 타깃은 11.0입니다. 이전 macOS에서의 실제 동작과 앱 서명·Apple 공증은 아직 검증 완료가 아닙니다.
+이전 버전에서 검증한 Mac 실행 ZIP은 **macOS Apple Silicon용**입니다. 동일 Mac에서 별도 폴더·빈 기록/연결·별도 포트로 압축 해제 후 실행을 확인했으며, 별도 물리 Mac의 신규 OS 설치 검증은 아직 하지 않았습니다. 실제 확인 OS는 macOS 26.5.2이며 바이너리의 최소 링크 타깃은 11.0입니다. 이전 macOS에서의 실제 동작과 앱 서명·Apple 공증은 아직 검증 완료가 아닙니다.
 
-**Windows x86_64 실행 ZIP도 작성·검증했습니다.** 기존 Windows11 PC의 별도 폴더와 빈 데이터에서 시작기·화면·기본팩 네 모드·종료를 확인했습니다. 별도 신규 OS와 일반 채점 의존성 신규 설치는 미검증이며, 이전 채점·장비 수집 검증과 범위를 구분합니다. [Windows 안내](WINDOWS-NATIVE-PREPARATION.md)를 참고하세요. Intel Mac·Linux 전체 앱의 신규 설치는 미검증입니다. GitHub의 Code → Download ZIP은 실행 파일이 없는 소스이므로 [README의 소스 빌드](../README.md#소스에서-빌드하기)가 먼저 필요합니다. 실행 ZIP은 별도로 제공된 파일을 사용하며, 저장소에 Release 파일이 있다고 가정하지 않습니다.
+**이전 버전의 Windows x86_64 실행 ZIP을 작성·검증했습니다.** 기존 Windows11 PC의 별도 폴더와 빈 데이터에서 시작기·화면·기본팩 네 모드·종료를 확인했습니다. 별도 신규 OS와 일반 채점 의존성 신규 설치는 미검증이며, 이전 채점·장비 수집 검증과 범위를 구분합니다. [Windows 안내](WINDOWS-NATIVE-PREPARATION.md)를 참고하세요. Intel Mac·Linux 전체 앱의 신규 설치는 미검증입니다. GitHub의 Code → Download ZIP은 실행 파일이 없는 소스이므로 [README의 소스 빌드](../README.md#소스에서-빌드하기)가 먼저 필요합니다. 실행 ZIP은 별도로 제공된 파일을 사용하며, 저장소에 Release 파일이 있다고 가정하지 않습니다.
 
 ## 1. 앱 열기 · Apple Silicon Mac 실행 번들
 
-1. 실행 ZIP 전체를 쓰기 가능한 폴더에 압축 해제합니다. 예: 문서 폴더의 `LLM Bench`.
-2. `Start-LLM-Bench.command`를 실행합니다. 첫 실행에 필요한 일반 채점 의존성을 준비한 뒤 앱과 브라우저를 엽니다. 이미 준비된 버전과 자료가 있으면 다시 다운로드하지 않습니다. 직접 준비만 하려면 `Setup-Graders.command`를 실행합니다.
+1. 실행 ZIP 전체를 쓰기 가능한 폴더에 압축 해제합니다. 예: 문서 폴더의 `Homelab Bench`.
+2. `Start-Homelab-Bench.command`를 실행합니다. 첫 실행에 필요한 일반 채점 의존성을 준비한 뒤 앱과 브라우저를 엽니다. 이미 준비된 버전과 자료가 있으면 다시 다운로드하지 않습니다. 직접 준비만 하려면 `Setup-Graders.command`를 실행합니다.
 3. macOS가 미확인 개발자 앱 실행을 차단하면 받은 출처와 체크섬을 먼저 확인하고 본인이 시스템 설정의 실행 허용 여부를 결정합니다. 보안 설정을 일괄 해제하거나 quarantine을 자동 제거하는 스크립트는 제공하지 않습니다.
 4. 브라우저의 `http://127.0.0.1:18760`에서 **연결 관리**를 열어 모델 API 주소·모델 ID·키와 시험 장비를 연결합니다. OpenAI 호환 Chat Completions 또는 Responses API 방식을 맞춘 뒤 시험과 보고서를 사용합니다. 다른 사용자의 연결·키·장비·시험 이력은 이 번들에 들어 있지 않습니다.
 
-브라우저만 닫으면 실행기는 계속 실행됩니다. 실행 터미널에서 **Control-C**를 누르면 종료합니다. 터미널을 닫기 전에 진행 중 시험을 일시정지/중단하거나 완료를 기다려 주세요. 포트가 이미 사용 중이면 `BENCH_PORT=18762 ./Start-LLM-Bench.command`처럼 바꿔 실행할 수 있습니다.
+브라우저만 닫으면 실행기는 계속 실행됩니다. 실행 터미널에서 **Control-C**를 누르면 종료합니다. 터미널을 닫기 전에 진행 중 시험을 일시정지/중단하거나 완료를 기다려 주세요. 포트가 이미 사용 중이면 `BENCH_PORT=18762 ./Start-Homelab-Bench.command`처럼 바꿔 실행할 수 있습니다.
 
 ## 2. 채점 환경 준비
 
@@ -30,7 +32,7 @@ Mac 실행 ZIP은 **macOS Apple Silicon용**입니다. 동일 Mac에서 별도 �
 
 같은 PC는 앱의 내장 장비 수집을 사용합니다. 외부 모델은 해당 모델 서버에 별도 수집기를 설치합니다. 수집기 전용 패키지에는 모델·평가 자료·Python·Docker가 필요 없습니다. 상세 설치 파일과 인증 연결은 [장비 수집기 안내](DEVICE-COLLECTOR.md)에 있습니다. 모델 API 주소가 localhost여도 장비 위치를 추측하지 않으며 모델 연결에 지정한 장비만 사용합니다.
 
-처음 실행할 때 일반 채점 환경을 준비하고 이후에는 준비된 환경을 확인합니다. `.venv`, Python 실행 파일, Docker 이미지, NLTK 데이터는 번들에 포함하지 않습니다. 준비가 실패해도 앱은 열리며 내장 채점기를 사용하는 팩부터 시험할 수 있습니다. 준비 단계를 건너뛰고 앱을 열려면 `BENCH_SKIP_SETUP=1 ./Start-LLM-Bench.command`를 사용합니다.
+처음 실행할 때 일반 채점 환경을 준비하고 이후에는 준비된 환경을 확인합니다. `.venv`, Python 실행 파일, Docker 이미지, NLTK 데이터는 번들에 포함하지 않습니다. 준비가 실패해도 앱은 열리며 내장 채점기를 사용하는 팩부터 시험할 수 있습니다. 준비 단계를 건너뛰고 앱을 열려면 `BENCH_SKIP_SETUP=1 ./Start-Homelab-Bench.command`를 사용합니다.
 
 - **GSM8K·MMLU-Pro·BBH**: 내장 채점기를 사용하므로 Python·Docker 없이 시작할 수 있습니다.
 - **IFEval·MATH-500**: Python 3.11 이상과 지정 의존성이 필요하며 IFEval에는 NLTK 자료도 필요합니다. Python 3.11을 권장합니다.
@@ -75,9 +77,9 @@ TTFT에는 통신·서비스 대기·추론이 포함됩니다. Prefill은 서�
 
 데이터팩을 직접 추가하려면 앱의 평가팩 추가에서 `schemas/pack.schema.json` 형식의 JSON을 선택합니다. 사용자 평가팩·문항 ID에는 `custom:`처럼 고유 접두사를 사용합니다. 공식 평가팩의 예약 ID를 재사용해 공식 점수로 보이게 만드는 등록은 차단됩니다. 추가 자료의 사용·재배포 권리를 확인해야 합니다.
 
-기본팩은 이미 동봉돼 있어 일반 설치에서 자료를 다시 받거나 팩을 재생성할 필요가 없습니다. 원본 재구성이 필요한 개발자는 [원본 자료·재생성 안내](../datasets/README.md)를 따릅니다. 재생성 도구와 과거 후보 생성 도구의 용도는 구분하며, 다운로드 옵션이 자료의 재배포 허가를 뜻하지 않습니다.
+기본팩과 필요한 원본 자료가 동봉돼 있어 추가 다운로드나 팩 재생성이 필요하지 않습니다. 예전 팩 정의와 생성 도구는 새 배포에서 제외합니다. 출처와 채점 방식은 [원본 자료 안내](../datasets/README.md)를 참고하세요.
 
-Apple Silicon Mac용 **소스 ZIP**은 Rust/Cargo와 Node/npm 설치 후 ZIP 루트의 `Build-Source.command`를 실행해 빌드합니다. GitHub 소스 체크아웃에는 이 파일이 `packaging/`에 있으므로 그대로 실행하지 말고 [README의 루트 기준 빌드 명령](../README.md#소스에서-빌드하기)을 사용합니다. Windows는 저장소 루트에서 `powershell -NoProfile -File .\packaging\Build-Source-Windows.ps1`로 빌드한 뒤 `.\packaging\Start-LLM-Bench-Windows.cmd`로 실행합니다. 선택한 Rust 대상에 맞는 C/C++ 빌드 환경도 필요합니다. Cargo.lock/npm lock을 사용하며, 소스 변경 뒤에는 새 산출물·체크섬을 생성해 배포본을 구분합니다.
+Apple Silicon Mac용 **소스 ZIP**은 Rust/Cargo와 Node/npm 설치 후 ZIP 루트의 `Build-Source.command`를 실행해 빌드합니다. GitHub 소스 체크아웃에는 이 파일이 `packaging/`에 있으므로 그대로 실행하지 말고 [README의 루트 기준 빌드 명령](../README.md#소스에서-빌드하기)을 사용합니다. Windows는 저장소 루트에서 `powershell -NoProfile -File .\packaging\Build-Source-Windows.ps1`로 빌드한 뒤 `.\packaging\Start-Homelab-Bench-Windows.cmd`로 실행합니다. 선택한 Rust 대상에 맞는 C/C++ 빌드 환경도 필요합니다. Cargo.lock/npm lock을 사용하며, 소스 변경 뒤에는 새 산출물·체크섬을 생성해 배포본을 구분합니다.
 
 ## 5. 기록과 공유
 

@@ -180,12 +180,22 @@ async fn main() -> anyhow::Result<()> {
         }
         runs.insert(r.id.clone(), r);
     }
+    // Source datasets are implementation inputs to the fixed basic pack, not
+    // separately selectable exams. Old runs keep their task snapshots in SQLite.
     let mut packs = BTreeMap::new();
+    for pack in timed_packs::load(std::path::Path::new("."))? {
+        packs.insert(pack.id.clone(), pack);
+    }
     if let Ok(entries) = std::fs::read_dir("datasets") {
         for entry in entries.flatten() {
-            if entry.path().extension().is_some_and(|e| e == "json") {
-                let p: Pack = serde_json::from_slice(&std::fs::read(entry.path())?)?;
-                packs.insert(p.id.clone(), p);
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "json")
+                && !reserved_pack_id(path.file_stem().and_then(|s| s.to_str()).unwrap_or(""))
+            {
+                let p: Pack = serde_json::from_slice(&std::fs::read(&path)?)?;
+                if !reserved_pack_id(&p.id) {
+                    packs.insert(p.id.clone(), p);
+                }
             }
         }
     }
@@ -194,60 +204,9 @@ async fn main() -> anyhow::Result<()> {
         .await?
     {
         let p: Pack = serde_json::from_str(&body)?;
-        packs.insert(p.id.clone(), p);
-    }
-    // New quality exams collect timing from their own responses. Keep the
-    // legacy experience pack available for records/API compatibility, but do
-    // not append its fixed requests to quick or full quality selections.
-    let components = [
-        "gsm8k-test-v1",
-        "math500-test-v1",
-        "mmlu-pro-test-v1",
-        "ifeval-full-v1",
-        "humaneval-full-v1",
-        "mbpp-test-v1",
-        "livecodebench-v6-v1",
-        "bbh-cot-full-v1",
-    ];
-    let installed = components
-        .iter()
-        .filter(|id| packs.contains_key(**id))
-        .collect::<Vec<_>>();
-    let missing = components
-        .iter()
-        .filter(|id| !packs.contains_key(**id))
-        .collect::<Vec<_>>();
-    if !installed.is_empty() {
-        let mut tasks = Vec::new();
-        let mut quick = Vec::new();
-        let mut source = Vec::new();
-        for id in installed {
-            let p = &packs[*id];
-            tasks.extend(p.tasks.iter().cloned());
-            if let Some(ids) = p.sources["quick_ids"].as_array() {
-                quick.extend(ids.iter().cloned());
-            }
-            source.push(
-                json!({"id":p.id,"version":p.version,"count":p.tasks.len(),"sources":p.sources}),
-            );
+        if !reserved_pack_id(&p.id) {
+            packs.insert(p.id.clone(), p);
         }
-        let count = tasks.len();
-        let combined = Pack {
-            id: "collection-full-v1".into(),
-            name: if missing.is_empty() {
-                "전체 분야 종합"
-            } else {
-                "설치된 평가팩 종합"
-            }
-            .into(),
-            version: "2026-11-07.1".into(),
-            sources: json!({"benchmark":"전체 분야 종합","split":"설치된 평가팩의 전체 평가 구간","source_count":count,"installed_count":count,"quick_count":quick.len(),"quick_ids":quick,"components":source,"missing_components":missing,"complete_collection":missing.is_empty(),"license":"구성 평가팩별 조건","redistribution":"local_collection","selection":"전체: 설치된 원본 평가 구간 전체 / 빠른: 각 팩의 고정 문항 ID"}),
-            tasks,
-        };
-        packs.insert(combined.id.clone(), combined);
-    }
-    for pack in timed_packs::load(std::path::Path::new("."))? {
-        packs.insert(pack.id.clone(), pack);
     }
     let (events, _) = broadcast::channel(128);
     let app = App {
@@ -313,7 +272,7 @@ async fn main() -> anyhow::Result<()> {
         .with_state(app);
     let port = std::env::var("BENCH_PORT").unwrap_or_else(|_| "18760".into());
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await?;
-    println!("LLM Bench → http://127.0.0.1:{port}");
+    println!("Homelab Bench → http://127.0.0.1:{port}");
     axum::serve(listener, router)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
@@ -350,34 +309,18 @@ async fn packs_list(State(s): State<App>) -> Json<Value> {
         json!({"id":p.id,"name":p.name,"version":p.version,"sources":p.sources,"count":p.tasks.len(),"subjects":subjects,"quick_subjects":quick})
     }).collect::<Vec<_>>()))
 }
+// Shared namespace guard: old bundled packs cannot reappear through a stale
+// file/database entry, and custom imports cannot impersonate official tasks.
+fn reserved_pack_id(id: &str) -> bool {
+    let id = id.to_lowercase();
+    ["experience:", "api-experience", "gsm8k", "bbh", "math500", "math-500",
+     "mmlu-pro", "ifeval", "humaneval", "mbpp", "livecodebench", "lcb:",
+     "ko-core", "korean-core", "collection-full", "public-core", "timed-", "basic-bench"]
+        .iter().any(|prefix| id.starts_with(prefix))
+}
 async fn pack_import(State(s): State<App>, Json(p): Json<Pack>) -> ApiResult<Json<Value>> {
     validate_pack(&p).map_err(bad)?;
-    // Only user registration is restricted. Bundled/file-installed official
-    // packs and historical runs retain their original identities.
-    let reserved = |id: &str| {
-        let id = id.to_lowercase();
-        [
-            "experience:",
-            "api-experience",
-            "gsm8k",
-            "bbh",
-            "math500",
-            "math-500",
-            "mmlu-pro",
-            "ifeval",
-            "humaneval",
-            "mbpp",
-            "livecodebench",
-            "lcb:",
-            "ko-core",
-            "korean-core",
-            "collection-full",
-            "public-core",
-        ]
-        .iter()
-        .any(|prefix| id.starts_with(prefix))
-    };
-    if reserved(&p.id) || p.tasks.iter().any(|t| reserved(&t.id)) {
+    if reserved_pack_id(&p.id) || p.tasks.iter().any(|t| reserved_pack_id(&t.id)) {
         return Err(bad(
             "공식 평가팩·문항 ID는 예약되어 있습니다. 사용자팩 ID와 문항 ID에 custom: 접두사를 사용하세요",
         ));
@@ -1038,7 +981,7 @@ async fn export(
     let mut h = HeaderMap::new();
     h.insert(
         "content-disposition",
-        format!("attachment; filename=bench-{id}.json")
+        format!("attachment; filename=homelab-bench-{id}.json")
             .parse()
             .unwrap(),
     );

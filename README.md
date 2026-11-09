@@ -1,8 +1,8 @@
-# LLM Bench · 로컬 모델 벤치마크
+# 홈랩 벤치 (Homelab Bench)
 
 ## 기본 벤치팩
 
-**기본 벤치팩 하나에서 시험 시간을 선택합니다.** 현재 버전은 `2026-11-09.1`입니다.
+**기본 벤치팩 하나에서 시험 시간을 선택합니다.** GitHub 최신 소스와 새 설치에는 이 기본팩과 실행에 필요한 원본 자료만 포함합니다. 예전 팩 정의와 생성 도구는 설치하지 않습니다. 현재 버전은 `2026-11-09.1`입니다.
 
 | 모드 | 문항 | 용도 | Qwen 실측 |
 |---|---:|---|---:|
@@ -21,6 +21,8 @@ Qwen·RTX3060·단일 요청 약60 tok/s 기준으로 모두 목표±20%에 들�
 벤치 앱과 모델은 **같은 PC에 있어도 되고, 서로 다른 장비에 있어도 됩니다.** 모델은 이미 실행 중인 API에 연결합니다. 앱이 모델을 설치하거나 자동으로 구동하지는 않습니다. 시험 기록은 벤치 앱을 실행하는 장비에 저장됩니다.
 
 **이 프로그램은 로컬에서 실행됩니다.** 시험 기록과 결과는 설치한 기기에 저장되며 개발자 서버로 자동 업로드되지 않습니다. 벤치 문제는 사용자가 연결한 모델 API로 전송됩니다. 외부 API를 선택하면 해당 제공업체로 전달되며, 채점용 외부 API를 선택한 경우에는 채점에 필요한 문제·정답·모델 답변도 전송됩니다. 설치 의존성을 준비할 때는 패키지 다운로드를 위해 인터넷을 사용합니다.
+
+기존 설치의 기록 경로와 내부 실행 파일명 `llm-bench`는 호환을 위해 유지합니다. 제품 이름은 홈랩 벤치이며, 저장소 주소는 기존 `pora1245/llm-bench`를 사용합니다.
 
 이 저장소는 비공개 베타입니다. 기본 접속 주소는 <http://127.0.0.1:18760>입니다.
 
@@ -42,6 +44,8 @@ AI는 다음 세 가지를 질문합니다.
 
 ## 직접 설치하는 순서
 
+이번 홈랩 벤치 버전은 GitHub 최신 소스로 설치합니다. 아래 소스 빌드 절차를 사용하세요. 새 이름의 실행 ZIP은 이번 업데이트에서 발행하지 않았습니다.
+
 1. **다운로드·압축 해제** — 실행 번들이 있으면 운영체제에 맞는 파일을 받고 폴더 전체를 풉니다. GitHub의 **Code → Download ZIP**은 소스이므로 아래 [소스 빌드](#소스에서-빌드하기)가 먼저 필요합니다.
 2. **의존성 준비** — 일반 채점 의존성을 준비합니다. 시작 스크립트도 첫 실행에 이 단계를 자동으로 수행합니다. Python 자체가 없으면 설치 안내에 따라 설치한 뒤 다시 실행합니다.
 3. **앱 시작** — 시작 스크립트를 실행하면 브라우저의 홈이 열립니다.
@@ -53,8 +57,8 @@ AI는 다음 세 가지를 질문합니다.
 
 | 환경 | 일반 채점 최초 준비 | 앱 시작 |
 |---|---|---|
-| Apple Silicon Mac 실행 번들 | `Setup-Graders.command` | `Start-LLM-Bench.command` |
-| Windows x86_64 실행 번들 | `packaging/Setup-Graders-Windows.cmd` | `Start-LLM-Bench-Windows.cmd` |
+| Apple Silicon Mac 실행 번들 | `Setup-Graders.command` | `Start-Homelab-Bench.command` |
+| Windows x86_64 실행 번들 | `packaging/Setup-Graders-Windows.cmd` | `Start-Homelab-Bench-Windows.cmd` |
 | GitHub 소스 | 아래 소스 빌드 후 운영체제에 맞는 준비 스크립트 사용 | 빌드 후 `packaging/`의 시작 스크립트 사용 |
 
 Apple Silicon Mac과 Windows x86_64 실행 번들은 Rust·Node 없이 앱을 열 수 있습니다. 실행 번들은 루트의 시작 파일을 사용하고, GitHub 소스 폴더는 빌드 후 `packaging/`의 파일을 사용합니다. Mac 실행·소스 ZIP의 파일 감사와 Mac 실행 검증, Windows 실행 ZIP의 실제 PC 시작기·상태 응답·웹 UI·네 모드 구성을 확인했습니다. 실행 검증은 기존 기기에서 별도 폴더와 빈 기록 저장소로 수행했으며 모델 API 호출은 없었습니다. Windows의 일반 채점 의존성 신규 설치와 별도 새 OS 검증, Intel Mac·Linux 전체 앱 신규 설치, macOS 서명·공증은 아직 확인하지 않았습니다. 제공 파일은 해당 배포의 첨부 목록을 확인하세요.
@@ -111,7 +115,7 @@ Apple Silicon Mac과 Windows x86_64 실행 번들은 Rust·Node 없이 앱을 �
 
 | 평가 영역 | 필요한 환경 |
 |---|---|
-| GSM8K·MMLU-Pro·BBH·API Experience | 앱 내장 채점기. Python·Docker 없이 사용 가능 |
+| GSM8K·MMLU-Pro·BBH | 앱 내장 채점기. Python·Docker 없이 사용 가능 |
 | MATH-500·IFEval | Python 3.11 이상과 일반 채점 의존성. IFEval은 NLTK 자료도 필요 |
 | HumanEval·MBPP·별도 설치한 LiveCodeBench | 일반 채점 환경과 실행 중인 Docker Linux 컨테이너 환경 |
 | 장비 상태 수집 | 내장 수집 또는 별도 Rust 수집기. Python·Docker 불필요 |
@@ -191,7 +195,7 @@ Apple Silicon Mac과 Windows x86_64 실행 번들은 Rust·Node 없이 앱을 �
 
 BBH는 공식 3-shot CoT 예시와 문항별 정답 일치로 채점하며, 논문의 과제별 평균과 구분합니다. 원본의 잘린 문항1개·상충 정답4개는 모델 오답이 아닌 채점 제외로 남기며 기본팩 선별에 포함하지 않았습니다. BBH는 홈·보고서에 별도 정확도로 표시하고 기존 지능·종합 지수의 가중치를 유지합니다. LiveCodeBench는 문제·테스트 자료의 재배포 조건이 미확정이라 별도 설치하며, 미측정 영역이 있으면 지능·종합 점수는 범위로 남습니다.
 
-성능은 품질 문제를 푸는 동안 수집한 응답 시간과 생성 속도로 계산합니다. 기존 API Experience 자료는 과거 기록·기준값·API 호환용으로 보관하고 새 시험 선택에서는 숨깁니다. 자체 한국어와 예전100문항 팩은 신규 선택·배포에서 제외하고 과거 기록만 보존합니다.
+성능은 품질 문제를 푸는 동안 수집한 응답 시간과 생성 속도로 계산합니다. 예전 팩은 새 배포에서 제외하며, 사용자가 이미 실행한 시험의 문항·답안·판정은 저장된 기록으로 조회합니다.
 
 원본·설치·선택 문항 수와 고정 리비전·입력 해시를 기록한다. [데이터 설치](datasets/README.md), [제3자 고지](docs/THIRD-PARTY-NOTICES.md), [배포 범위 감사](docs/DISTRIBUTION-LICENSE-AUDIT.md)를 따른다. 데이터별 조건이 불명확한 자료는 배포본에 넣지 않는다. 별도 다운로드는 이용자가 해당 자료 조건을 확인해 선택한다.
 
@@ -251,10 +255,10 @@ cargo build --release --locked
 mkdir -p bin
 cp target/release/llm-bench bin/llm-bench
 zsh packaging/Setup-Graders.command
-zsh packaging/Start-LLM-Bench.command
+zsh packaging/Start-Homelab-Bench.command
 ```
 
-최초 준비를 나중에 하려면 마지막 명령을 `BENCH_SKIP_SETUP=1 zsh packaging/Start-LLM-Bench.command`로 실행할 수 있습니다. Python 경로를 직접 지정하려면 준비 명령 앞에 `BENCH_SETUP_PYTHON=/실제/Python/경로`를 설정합니다.
+최초 준비를 나중에 하려면 마지막 명령을 `BENCH_SKIP_SETUP=1 zsh packaging/Start-Homelab-Bench.command`로 실행할 수 있습니다. Python 경로를 직접 지정하려면 준비 명령 앞에 `BENCH_SETUP_PYTHON=/실제/Python/경로`를 설정합니다.
 
 ### Windows PowerShell
 
@@ -267,10 +271,10 @@ cargo build --release --locked
 New-Item -ItemType Directory -Force bin
 Copy-Item target\release\llm-bench.exe bin\llm-bench.exe -Force
 .\packaging\Setup-Graders-Windows.cmd
-.\packaging\Start-LLM-Bench-Windows.cmd
+.\packaging\Start-Homelab-Bench-Windows.cmd
 ```
 
-준비를 건너뛰고 내장 과목부터 실행하려면 `.\packaging\Start-LLM-Bench-Windows.cmd -SkipSetup`을 사용합니다. 기록 폴더나 포트를 바꾸려면 `-DataDirectory 'D:\LLM-Bench-Data' -Port 18762`처럼 지정합니다. 명령 실행이 실패하면 다음 단계로 진행하기 전에 해당 오류를 해결하세요.
+준비를 건너뛰고 내장 과목부터 실행하려면 `.\packaging\Start-Homelab-Bench-Windows.cmd -SkipSetup`을 사용합니다. 기록 폴더나 포트를 바꾸려면 `-DataDirectory 'D:\LLM-Bench-Data' -Port 18762`처럼 지정합니다. 명령 실행이 실패하면 다음 단계로 진행하기 전에 해당 오류를 해결하세요.
 
 ### 개발용 실행과 검사
 

@@ -487,7 +487,7 @@ export function renderReport(
       } as Obj
     )[cfg.profile] || "사용자 지정 시험";
   let body =
-    text(48, 42, run.provenance === "imported_record" ? "BENCH / 가져온 기록 · 실행 미검증" : "BENCH / LOCAL EVALUATION", 13, c.accent, 700) +
+    text(48, 42, run.provenance === "imported_record" ? "HOMELAB BENCH / 가져온 기록 · 실행 미검증" : "HOMELAB BENCH / 홈랩 벤치", 13, c.accent, 700) +
     text(1072, 42, formats[format], 15, c.muted, 600, "end");
   body +=
     block(48, 84, cfg.name || "모델 평가 보고서", 1010, 28, 2, c.text) +
@@ -1355,7 +1355,7 @@ export function Report({
     onError("");
     try {
       const packName = benchmarkLabel(run.config?.pack_id).replace(/[\\/:*?"<>|]/g, "-");
-      const name = `bench-${packName}-${runId.slice(0, 8)}-${format}-${theme}-${actualPage + 1}`;
+      const name = `homelab-bench-${packName}-${runId.slice(0, 8)}-${format}-${theme}-${actualPage + 1}`;
       // Open while the click still has user activation; report assembly may take time.
       const printWindow = type === "pdf" ? window.open("", "_blank") : null;
       if (type === "pdf" && !printWindow)

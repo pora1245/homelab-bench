@@ -13,4 +13,4 @@ export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$APP_DIR=/llm-bench --remap
 cargo build --release --locked
 mkdir -p bin
 cp target/release/llm-bench bin/llm-bench
-print "빌드 완료. Apple Silicon Mac에서는 Start-LLM-Bench.command로 실행합니다."
+print "빌드 완료. Apple Silicon Mac에서는 Start-Homelab-Bench.command로 실행합니다."

@@ -31,15 +31,15 @@
       "sha256": "e705dc1d378f8ddaecae9e2ccd2296569f41ac99531ba45739491e17a4fec0e9"
     }
   ],
-  "project_authored_data": [
-    "datasets/api-experience-v1.json"
-  ],
+  "project_authored_data": [],
   "excluded_data": [
     "datasets/public-core.json",
     "datasets/korean-core-v1.json",
     "datasets/livecodebench-v6-v1.json",
     "datasets/sources/livecodebench-v6-tests/**",
-    "datasets/sources/downloads/**"
+    "datasets/sources/downloads/**",
+    "datasets/api-experience-v1.json",
+    "datasets/timed-packs/manifest-v1.json"
   ],
   "required_notices": [
     "LICENSES/GSM8K-MIT.txt",
@@ -71,7 +71,8 @@
     "evidence/**"
   ],
   "vendor_manifest_unchanged": true,
-  "note": "Data allowlist is not a grant of rights in the app itself. Rust/npm license inventory must also accompany binary/JS distribution.",
-  "scope_revision": "2026-11-06.2-expanded",
-  "review_correction": "MMLU-Pro official data MIT accepted; MATH-500 500/500 equivalent to official MIT PRM800K split; BBH added with MIT and original BIG-bench Apache notices. ARC and WinoGrande remain documented future candidates."
+  "note": "Data allowlist is not a grant of rights in the app itself. Rust/npm license inventory must also accompany binary/JS distribution. Fresh installations expose only basic-bench-v2; its seven pinned source datasets are internal dependencies.",
+  "scope_revision": "2026-11-09.1-basic-only",
+  "review_correction": "MMLU-Pro official data MIT accepted; MATH-500 500/500 equivalent to official MIT PRM800K split; BBH added with MIT and original BIG-bench Apache notices. ARC and WinoGrande remain documented future candidates.",
+  "installation_pack": "basic-bench-v2"
 }

@@ -31,7 +31,7 @@ try {
     $BenchHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 2
     if ($BenchHealth.ok -and $BenchHealth.version) {
         if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port" }
-        Write-Host 'An existing LLM Bench instance is already running. No second process was started.'
+        Write-Host 'An existing Homelab Bench instance is already running. No second process was started.'
         return
     }
 } catch { }
@@ -39,7 +39,7 @@ if (-not $SkipSetup) {
     try { & (Join-Path $PSScriptRoot 'Setup-Graders-Windows.ps1') -DataDirectory $env:BENCH_DATA_DIR }
     catch { Write-Warning "Some graders are not ready. The app will open with built-in packs available. $($_.Exception.Message)" }
 }
-Write-Host "LLM Bench: http://127.0.0.1:$Port"
+Write-Host "Homelab Bench: http://127.0.0.1:$Port"
 Write-Host "Records: $env:BENCH_DATA_DIR"
 Write-Host 'Keep this terminal open. Control-C stops this instance.'
 $BenchBrowserJob = $null
@@ -57,7 +57,7 @@ if (-not $NoBrowser) {
 }
 try {
     & $BenchExecutable
-    if ($LASTEXITCODE -ne 0) { throw "LLM Bench exited with code $LASTEXITCODE." }
+    if ($LASTEXITCODE -ne 0) { throw "Homelab Bench exited with code $LASTEXITCODE." }
 } finally {
     if ($BenchBrowserJob) { Stop-Job $BenchBrowserJob -ErrorAction SilentlyContinue; Remove-Job $BenchBrowserJob -Force -ErrorAction SilentlyContinue }
 }

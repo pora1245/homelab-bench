@@ -701,12 +701,13 @@ mod admission_tests {
                 item
             })
             .collect();
-        let pack: Pack =
-            serde_json::from_str(include_str!("../datasets/api-experience-v1.json")).unwrap();
-        r.items.extend(pack.tasks.into_iter().map(|task| Item {
-            task,
-            status: "pending".into(),
-            attempts: vec![],
+        // Historical records are self-contained; this scheduling fixture must
+        // not require shipping an obsolete, selectable benchmark pack.
+        let template = run().items[2].task.clone();
+        r.items.extend((0..13).map(|n| {
+            let mut task = template.clone();
+            task.id = if n == 0 { "experience:warmup:0".into() } else { format!("experience:fixture:{n}") };
+            Item { task, status: "pending".into(), attempts: vec![] }
         }));
         r
     }

@@ -24,13 +24,12 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).resolve().parents[1]
 PACKS = []  # Resolved only from the reviewed distribution policy in main().
 EXCLUDED_DATA_FILES = set()
-COMMON_FILES = ["API.md", "datasets/README.md", "schemas/pack.schema.json", "scorers/bridge.py", "scorers/Dockerfile", "scorers/requirements.txt", "scorers/vendor/manifest.json", "tools/prepare_graders.py", "tools/import_full_datasets.py", "tools/import_bbh.py", "tools/audit_bbh_published_outputs.py", "tools/import-requirements.txt", "tests/bbh_contracts.py", "datasets/sources/download-manifest.json", "datasets/sources/bbh-manifest.json", "datasets/sources/bbh-published-results-manifest.json", "packaging/Start-LLM-Bench-Windows.ps1", "packaging/Setup-Graders-Windows.ps1", "packaging/Install-Python-Windows.ps1", "packaging/Setup-Code-Grader-Windows.ps1", "packaging/Start-LLM-Bench-Windows.cmd", "packaging/Setup-Graders-Windows.cmd", "packaging/Setup-Code-Grader-Windows.cmd"]
+COMMON_FILES = ["API.md", "datasets/README.md", "schemas/pack.schema.json", "scorers/bridge.py", "scorers/Dockerfile", "scorers/requirements.txt", "scorers/vendor/manifest.json", "tools/prepare_graders.py", "datasets/sources/download-manifest.json", "datasets/sources/bbh-manifest.json", "datasets/sources/bbh-published-results-manifest.json", "packaging/Start-Homelab-Bench-Windows.ps1", "packaging/Setup-Graders-Windows.ps1", "packaging/Install-Python-Windows.ps1", "packaging/Setup-Code-Grader-Windows.ps1", "packaging/Start-Homelab-Bench-Windows.cmd", "packaging/Setup-Graders-Windows.cmd", "packaging/Setup-Code-Grader-Windows.cmd"]
 SOURCE_FILES = ["Cargo.toml", "Cargo.lock", "web/package.json", "web/package-lock.json", "web/tsconfig.json", "web/index.html", "tools/package_beta.py", "packaging/Build-Source-Windows.ps1", "packaging/Dockerfile.windows-build"]
-SOURCE_FILES += ["tools/build_basic_pack.py", "tools/build_timed_packs.py", "tools/validate_timed_packs.py", "tools/prepare_screening.py"]
-DOC_FILES = ["docs/BETA-START.md", "docs/WINDOWS-NATIVE-PREPARATION.md", "docs/BETA-REVIEW.md", "docs/BBH-PACK.md", "docs/bbh-validation.json", "docs/bbh-published-output-audit.json", "docs/THIRD-PARTY-NOTICES.md", "docs/DISTRIBUTION-LICENSE-AUDIT.md", "docs/python-dependencies.json", "docs/distribution-allowlist.json", "docs/rust-toolchain-notices.json", "docs/math500-source-equivalence.json", "docs/dataset-expansion-sources.json"]
+DOC_FILES = ["docs/BETA-START.md", "docs/WINDOWS-NATIVE-PREPARATION.md", "docs/BBH-PACK.md", "docs/THIRD-PARTY-NOTICES.md", "docs/DISTRIBUTION-LICENSE-AUDIT.md", "docs/python-dependencies.json", "docs/distribution-allowlist.json", "docs/rust-toolchain-notices.json", "docs/math500-source-equivalence.json", "docs/dataset-expansion-sources.json"]
 DOC_FILES.append("docs/DEVICE-COLLECTOR.md")
 DOC_FILES += ["docs/AI-INSTALL.md", "docs/STATUS.md"]
-COMMON_FILES += ["datasets/basic-pack/manifest-v2.json", "docs/BASIC-PACK.md", "datasets/timed-packs/manifest-v1.json", "docs/TIMED-PACK-PLAN.md", "docs/TIMED-PACKS.md", "README.md", "AGENTS.md", "SCORE-POLICY.md", "tools/configure_install.py"]
+COMMON_FILES += ["datasets/basic-pack/manifest-v2.json", "docs/BASIC-PACK.md", "README.md", "AGENTS.md", "SCORE-POLICY.md", "tools/configure_install.py"]
 COMMON_FILES += ["packaging/" + name for name in [
     "collector-posix.sh", "Setup-Device-Collector.command", "Start-Device-Collector.command",
     "Setup-Device-Collector-Linux.sh", "Start-Device-Collector-Linux.sh",
@@ -51,21 +50,6 @@ def distribution_policy():
     for item in policy['third_party_datasets']:
         assert sha(ROOT/item['file'])==item['sha256'], 'Audited dataset changed: '+item['file']
     return policy,sorted(Path(path).name for path in paths)
-
-def expected_packs():
-    result={}
-    for name in PACKS:
-        pack=json.loads((ROOT/'datasets'/name).read_text())
-        tasks=pack['tasks'];ids=pack['sources'].get('quick_ids')
-        assert pack['id'] not in result, 'Duplicate packaged evaluation pack ID'
-        if ids is not None:
-            selected=set(ids); quick=sum(task['id'] in selected for task in tasks)
-        else:
-            subjects={}
-            for task in tasks: subjects[task['subject']]=subjects.get(task['subject'],0)+1
-            quick=sum(min(n,5) for n in subjects.values())
-        result[pack['id']]={'count':len(tasks),'quick':quick}
-    return result
 
 def sha(path):
     h = hashlib.sha256()
@@ -154,13 +138,13 @@ def payload(stage, kind, notice_stage):
         return
     for rel in COMMON_FILES+DOC_FILES:
         copy(rel,stage/rel)
-    (stage/'BETA-START.md').write_text('# LLM Bench 시작 안내\n\n[한국어 시작 안내](docs/BETA-START.md) · [AI 설치 안내](docs/AI-INSTALL.md) · [전체 사용법](README.md)\n', encoding='utf-8')
+    (stage/'BETA-START.md').write_text('# 홈랩 벤치(Homelab Bench) 시작 안내\n\n[한국어 시작 안내](docs/BETA-START.md) · [AI 설치 안내](docs/AI-INSTALL.md) · [전체 사용법](README.md)\n', encoding='utf-8')
     copy('docs/THIRD-PARTY-NOTICES.md',stage/'THIRD_PARTY_NOTICES.md')
     for name in PACKS: copy('datasets/'+name,stage/'datasets'/name)
     tree(ROOT/'LICENSES',stage/'LICENSES')
     tree(ROOT/'docs/licenses',stage/'docs/licenses')
     tree(ROOT/'scorers/vendor',stage/'scorers/vendor',{'.py'})
-    copy('packaging/Start-LLM-Bench.command',stage/'Start-LLM-Bench.command')
+    copy('packaging/Start-Homelab-Bench.command',stage/'Start-Homelab-Bench.command')
     copy('packaging/Setup-Graders.command',stage/'Setup-Graders.command')
     copy('packaging/Install-Python.command',stage/'Install-Python.command')
     copy('packaging/Setup-Code-Grader.command',stage/'Setup-Code-Grader.command')
@@ -174,16 +158,19 @@ def payload(stage, kind, notice_stage):
         for rel in SOURCE_FILES: copy(rel,stage/rel)
         tree(ROOT/'src',stage/'src',{'.rs'})
         tree(ROOT/'web/src',stage/'web/src',{'.ts','.tsx','.css','.json'})
-        tree(ROOT/'packaging',stage/'packaging',{'.command'})
+
+        for launcher in (ROOT/'packaging').glob('*.command'):
+            if launcher.name != 'Start-LLM-Bench.command': copy(launcher.relative_to(ROOT),stage/'packaging'/launcher.name)
         copy('packaging/Build-Source.command',stage/'Build-Source.command')
         (stage/'.gitignore').write_text('/data/\n/.venv/\n/target/\n/web/node_modules/\n/web/dist/\n/bin/\n')
 
 def audit(stage):
     files=[]
+    retired = {'datasets/timed-packs/manifest-v1.json', 'datasets/api-experience-v1.json', 'datasets/public-core.json', 'datasets/korean-core-v1.json', 'tools/build_basic_pack.py', 'tools/build_timed_packs.py', 'tools/prepare_data.py', 'tools/prepare_screening.py', 'docs/TIMED-PACKS.md', 'docs/TIMED-PACK-PLAN.md'}
     for p in sorted(stage.rglob('*')):
         if not p.is_file(): continue
         rel=p.relative_to(stage)
-        if set(rel.parts)&FORBIDDEN_PARTS or p.name in FORBIDDEN_FILES or rel.as_posix() in EXCLUDED_DATA_FILES or p.suffix in ('.sqlite3','.db','.pem','.key','.map','.pyc'):
+        if rel.as_posix() in retired or 'Start-LLM-Bench' in p.name or set(rel.parts)&FORBIDDEN_PARTS or p.name in FORBIDDEN_FILES or rel.as_posix() in EXCLUDED_DATA_FILES or p.suffix in ('.sqlite3','.db','.pem','.key','.map','.pyc'):
             raise ValueError('Private or excluded file selected: '+str(rel))
         data=p.read_bytes()
         if any(marker and marker in data for marker in HOME_MARKERS): raise ValueError('Private host/path marker in '+str(rel))
@@ -200,7 +187,7 @@ def archive(stage, dest):
                 info.create_system=3;info.external_attr=(stat.S_IFREG | (p.stat().st_mode&0o777))<<16;info.compress_type=zipfile.ZIP_DEFLATED
                 z.writestr(info,p.read_bytes())
 
-def verify_archive(path, launcher='Start-LLM-Bench.command'):
+def verify_archive(path, launcher='Start-Homelab-Bench.command'):
     with zipfile.ZipFile(path) as z:
         names=z.namelist()
         assert len(names)==len(set(names)), 'Duplicate archive path'
@@ -245,11 +232,9 @@ def smoke(zip_path, report_path):
                         time.sleep(.15)
                 runs=json_get(f'http://127.0.0.1:{port}/api/runs');connections=json_get(f'http://127.0.0.1:{port}/api/connections');packs=json_get(f'http://127.0.0.1:{port}/api/packs')
                 assert runs==[] and connections==[]
-                expected=expected_packs()
-                timed=json.loads((ROOT/'datasets/timed-packs/manifest-v1.json').read_text())['packs']
-                for p in timed: expected[p['id']]={'count':len(p['task_ids']),'quick':len(p['task_ids'])}
                 basic_manifest=json.loads((ROOT/'datasets/basic-pack/manifest-v2.json').read_text())
-                basic=next(p for p in packs if p['id']==basic_manifest['id'])
+                assert len(packs)==1 and packs[0]['id']==basic_manifest['id']
+                basic=packs[0]
                 assert basic['version']==basic_manifest['version']
                 assert basic['count']==basic_manifest['modes'][-1]['count']
                 previous=set()
@@ -258,24 +243,11 @@ def smoke(zip_path, report_path):
                     selected=set(mode['task_ids'])
                     assert len(selected)==mode['count'] and previous<=selected
                     previous=selected
-                ids=sorted(p['id'] for p in packs);assert ids==sorted([*expected,'collection-full-v1',basic_manifest['id']])
-                for pack in packs:
-                    if pack['id'] in expected:
-                        assert pack['count']==expected[pack['id']]['count']
-                        assert sum(pack['quick_subjects'].values())==expected[pack['id']]['quick']
-                combined=next(p for p in packs if p['id']=='collection-full-v1')
-                quality={key:value for key,value in expected.items() if key!='api-experience-v1' and not key.startswith('timed-')}
-                assert combined['count']==sum(v['count'] for v in quality.values())
-                assert sum(combined['quick_subjects'].values())==combined['sources']['quick_count']==sum(v['quick'] for v in quality.values())
-                assert {c['id'] for c in combined['sources']['components']}==set(quality)
-                assert not set(combined['sources']['missing_components']) & set(expected)
-                assert 'api-experience-v1' not in combined['sources']['missing_components']
-                assert not any(task_id.startswith('experience:') for task_id in combined['sources']['quick_ids'])
-                assert combined['sources']['complete_collection']==(not combined['sources']['missing_components'])
+                ids=[basic['id']]
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/',timeout=3) as r: html=r.read().decode();assert '<div id="root"></div>' in html
                 readiness=json_get(f'http://127.0.0.1:{port}/api/readiness')
                 assert all(v['available'] is False for v in readiness['scorers'].values())
-                result={'health':health,'runs_empty':True,'connections_empty':True,'pack_ids':ids,'pack_counts':{p['id']:p['count'] for p in packs},'quick_counts':{p['id']:sum(p['quick_subjects'].values()) for p in packs},'missing_components':combined['sources']['missing_components'],'manifest_hashes_verified':True,'frontend_served':True,'missing_python_returns_preparation_error':True,'isolated_data_directory':True,'model_requests':0,'environment':'same Mac, separate extraction and empty data; Python environment explicitly unavailable; not a separate physical Mac','system':platform.system(),'architecture':platform.machine(),'macos':platform.mac_ver()[0]}
+                result={'health':health,'runs_empty':True,'connections_empty':True,'pack_ids':ids,'pack_counts':{p['id']:p['count'] for p in packs},'quick_counts':{p['id']:sum(p['quick_subjects'].values()) for p in packs},'manifest_hashes_verified':True,'frontend_served':True,'missing_python_returns_preparation_error':True,'isolated_data_directory':True,'model_requests':0,'environment':'same Mac, separate extraction and empty data; Python environment explicitly unavailable; not a separate physical Mac','system':platform.system(),'architecture':platform.machine(),'macos':platform.mac_ver()[0]}
             finally:
                 if process.poll() is None:
                     process.send_signal(signal.SIGINT)
@@ -333,7 +305,8 @@ def collector_smoke(zip_path, report_path):
 
 def main():
     global PACKS, EXCLUDED_DATA_FILES
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--output',type=Path);ap.add_argument('--build',action='store_true',help='Rebuild UI and release binary from installed locked dependencies');ap.add_argument('--verify',action='store_true',help='Extract archive and start an isolated local smoke instance; no model requests');ap.add_argument('--collector-only',action='store_true',help='Build the standalone collector without UI, datasets, Python or code graders');args=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--output',type=Path);ap.add_argument('--build',action='store_true',help='Rebuild UI and release binary from installed locked dependencies');ap.add_argument('--verify',action='store_true',help='Extract archive and start an isolated local smoke instance; no model requests');ap.add_argument('--source-only',action='store_true',help='Package current sources only, without requiring or copying a built executable');ap.add_argument('--collector-only',action='store_true',help='Build the standalone collector without UI, datasets, Python or code graders');args=ap.parse_args()
+    if args.source_only and args.collector_only: ap.error('--source-only and --collector-only are exclusive')
     if platform.system()!='Darwin' or platform.machine()!='arm64': raise SystemExit('This packager currently verifies only macOS arm64.')
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ');out=args.output or ROOT/'data/releases'/stamp
     if out.exists(): raise SystemExit('Output directory already exists; choose a new version directory.')
@@ -341,14 +314,16 @@ def main():
         if not args.collector_only:run(['npm','run','build'],ROOT/'web')
         env=os.environ.copy();env['RUSTFLAGS']=env.get('RUSTFLAGS','')+f' --remap-path-prefix={ROOT}=/llm-bench --remap-path-prefix={Path(os.environ.get("CARGO_HOME",str(Path.home()/".cargo")))}=/cargo'
         run(['cargo','build','--release','--locked'],env=env)
-    binary=ROOT/'target/release/llm-bench'
-    binary_info=run(['file',str(binary)]).split(': ',1)[-1].strip()
-    dynamic_libraries=[line.strip().split(' (',1)[0] for line in run(['otool','-L',str(binary)]).splitlines()[1:]]
-    if any(not library.startswith(('/System/Library/', '/usr/lib/')) for library in dynamic_libraries): raise SystemExit('Non-system shared library prevents standalone distribution.')
-    build_commands=run(['otool','-l',str(binary)])
-    minos=re.search(r'\bminos\s+([0-9.]+)',build_commands)
-    minimum_macos=minos.group(1) if minos else 'unknown'
-    if 'arm64' not in binary_info: raise SystemExit('Release binary is not arm64.')
+    binary_info='not included (source archive)';dynamic_libraries=[];minimum_macos='not applicable'
+    if not args.source_only:
+        binary=ROOT/'target/release/llm-bench'
+        binary_info=run(['file',str(binary)]).split(': ',1)[-1].strip()
+        dynamic_libraries=[line.strip().split(' (',1)[0] for line in run(['otool','-L',str(binary)]).splitlines()[1:]]
+        if any(not library.startswith(('/System/Library/', '/usr/lib/')) for library in dynamic_libraries): raise SystemExit('Non-system shared library prevents standalone distribution.')
+        build_commands=run(['otool','-l',str(binary)])
+        minos=re.search(r'\bminos\s+([0-9.]+)',build_commands)
+        minimum_macos=minos.group(1) if minos else 'unknown'
+        if 'arm64' not in binary_info: raise SystemExit('Release binary is not arm64.')
     toolchain=json.loads((ROOT/'docs/rust-toolchain-notices.json').read_text())
     assert toolchain['rustc']==run(['rustc','--version']).strip(), 'Rust toolchain changed; refresh standard-library notices before distributing'
     for item in toolchain['files']: assert sha(ROOT/item['file'])==item['sha256'], 'Rust toolchain notice changed: '+item['file']
@@ -359,18 +334,18 @@ def main():
     with tempfile.TemporaryDirectory(prefix='llm-bench-package-') as tmp:
         temp=Path(tmp);notice=temp/'notices';notice.mkdir();deps=dependency_notices(notice,include_web=not args.collector_only)
         artifacts=[]
-        for kind in (('collector-macos-arm64',) if args.collector_only else ('macos-arm64','source')):
-            stage=temp/f'llm-bench-0.1.0-beta-{kind}';stage.mkdir();payload(stage,kind,notice)
+        for kind in (('collector-macos-arm64',) if args.collector_only else (('source',) if args.source_only else ('macos-arm64','source'))):
+            stage=temp/f'homelab-bench-0.1.0-beta-{kind}';stage.mkdir();payload(stage,kind,notice)
             files=audit(stage)
             manifest={'format':'llm-bench-beta-manifest-v1','created_at':datetime.now(timezone.utc).isoformat(),'version':'0.1.0-beta','kind':kind,'source_license':'not yet assigned; see PROJECT-LICENSE-STATUS.txt','supported_runtime':'macOS Apple Silicon; other platforms unverified','datasets':PACKS,'excluded':['user data/keys/connections/history','evidence','Python environment','model weights',*allow['excluded_data']],'file_count':len(files),'files':files}
             (stage/'MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
             dest=out/(stage.name+'.zip');archive(stage,dest)
-            verify_archive(dest,'Start-Device-Collector.command' if args.collector_only else 'Start-LLM-Bench.command')
+            verify_archive(dest,'Start-Device-Collector.command' if args.collector_only else 'Start-Homelab-Bench.command')
             artifacts.append({'file':dest.name,'bytes':dest.stat().st_size,'sha256':sha(dest),'file_count':len(files)+1,'archive_hashes_verified':True,'launcher_executable':True})
             if kind=='macos-arm64' and args.verify: smoke(dest,out/'clean-smoke.json')
             if args.collector_only and args.verify:collector_smoke(dest,out/'collector-smoke.json')
         (out/'SHA256SUMS').write_text(''.join(f"{a['sha256']}  {a['file']}\n" for a in artifacts))
-        report={'created_at':datetime.now(timezone.utc).isoformat(),'artifacts':artifacts,'binary':binary_info,'minimum_macos_link_target':minimum_macos,'tested_macos':platform.mac_ver()[0],'dynamic_libraries':dynamic_libraries,'rust_dependencies':len(deps['rust']),'npm_dependencies':len(deps['npm']),'privacy_scan':'passed','license_text_missing':deps['license_text_missing'],'clean_smoke':'passed' if args.verify else 'not run','published':False}
+        report={'created_at':datetime.now(timezone.utc).isoformat(),'artifacts':artifacts,'binary':binary_info,'minimum_macos_link_target':minimum_macos,'tested_macos':platform.mac_ver()[0],'dynamic_libraries':dynamic_libraries,'rust_dependencies':len(deps['rust']),'npm_dependencies':len(deps['npm']),'privacy_scan':'passed','license_text_missing':deps['license_text_missing'],'clean_smoke':'not run (source only)' if args.source_only else 'passed' if args.verify else 'not run','published':False}
         (out/'release-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
         print(json.dumps({'output':str(out),**report},ensure_ascii=False,indent=2))
 
